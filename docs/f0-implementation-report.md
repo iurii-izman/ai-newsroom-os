@@ -1,8 +1,8 @@
 # Foundation F0 Implementation Report
 
-Date: 2026-07-14  
-Branch: `feat/f0-foundation`  
-Normative source: `F0_TECHNICAL_SPEC.md`  
+Date: 2026-07-14
+Branch: `feat/f0-foundation`
+Normative source: `F0_TECHNICAL_SPEC.md`
 Result: `PASS`
 
 ## Scope and process
@@ -159,7 +159,7 @@ Approved plan and procedure:
 - Named F0 scope/quality skills were unavailable; equivalent read-only manual gates passed as documented above.
 - The task input `CODEX_F0_APPROVE_UV_BUILD_AND_RESUME_FINAL.md` and separately created `docs/TRACK_A/` remain untracked and were intentionally excluded from every commit.
 
-Dependency policy: no deviation.  
+Dependency policy: no deviation.
 Implementation commit strategy: five logical implementation commits, plus the required packaging-decision and implementation-report documentation commits.
 
 ## Constraints confirmed
