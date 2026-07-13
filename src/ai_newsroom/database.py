@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from ai_newsroom.models import F0Error, SourceSnapshot, Story
+from ai_newsroom.models import F0Error, SourceSnapshot, Story, StoryPackageSnapshot
 from ai_newsroom.normalization import content_hash, source_id, story_id
 
 DATABASE_NAME = "newsroom.db"
@@ -287,3 +287,128 @@ def list_stories(data_dir: Path) -> list[tuple[Story, str]]:
         except sqlite3.Error as error:
             raise _map_sqlite_error(error) from None
     return [(Story(id=str(row[0]), primary_source_id=str(row[1])), str(row[2])) for row in rows]
+
+
+def _source_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceSnapshot:
+    return SourceSnapshot(
+        id=str(row[0]),
+        original_url=str(row[1]),
+        canonical_url=str(row[2]),
+        title=str(row[3]),
+        summary_text=str(row[4]),
+        published_at=None if row[5] is None else str(row[5]),
+        published_at_raw=None if row[6] is None else str(row[6]),
+        discovered_at=str(row[7]),
+        content_hash=str(row[8]),
+    )
+
+
+def load_story_source(data_dir: Path, requested_story_id: str) -> tuple[Story, SourceSnapshot]:
+    with open_database(data_dir) as connection:
+        try:
+            row = connection.execute(
+                """
+                SELECT stories.id, stories.primary_source_id,
+                       sources.id, sources.original_url, sources.canonical_url, sources.title,
+                       sources.summary_text, sources.published_at, sources.published_at_raw,
+                       sources.discovered_at, sources.content_hash
+                FROM stories
+                JOIN sources ON sources.id = stories.primary_source_id
+                WHERE stories.id = ?
+                """,
+                (requested_story_id,),
+            ).fetchone()
+        except sqlite3.Error as error:
+            raise _map_sqlite_error(error) from None
+    if row is None:
+        raise F0Error("E_STORY_NOT_FOUND", "Story does not exist; list Story IDs and retry")
+    story = Story(id=str(row[0]), primary_source_id=str(row[1]))
+    return story, _source_from_row(row[2:])
+
+
+def _package_from_row(row: sqlite3.Row | tuple[object, ...]) -> StoryPackageSnapshot:
+    try:
+        return StoryPackageSnapshot.model_validate(
+            {
+                "package_id": row[0],
+                "story_id": row[1],
+                "schema_version": row[2],
+                "generator_name": row[3],
+                "generator_version": row[4],
+                "input_fingerprint": row[5],
+                "payload_json": row[6],
+                "built_at": row[7],
+            }
+        )
+    except ValueError:
+        raise F0Error("E_DB_SCHEMA", "stored package fields are invalid") from None
+
+
+def save_package(data_dir: Path, snapshot: StoryPackageSnapshot) -> bool:
+    with open_database(data_dir) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT package_id, story_id, schema_version, generator_name, generator_version,
+                       input_fingerprint, payload_json, built_at
+                FROM story_packages WHERE story_id = ?
+                """,
+                (snapshot.story_id,),
+            ).fetchone()
+            if row is not None:
+                existing = _package_from_row(row)
+                if existing.model_dump(exclude={"built_at"}) != snapshot.model_dump(
+                    exclude={"built_at"}
+                ):
+                    raise F0Error("E_DB_SCHEMA", "existing package conflicts with immutable inputs")
+                connection.execute("COMMIT")
+                return False
+            connection.execute(
+                """
+                INSERT INTO story_packages(
+                  package_id, story_id, schema_version, generator_name, generator_version,
+                  input_fingerprint, payload_json, built_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot.package_id,
+                    snapshot.story_id,
+                    snapshot.schema_version,
+                    snapshot.generator_name,
+                    snapshot.generator_version,
+                    snapshot.input_fingerprint,
+                    snapshot.payload_json,
+                    snapshot.built_at,
+                ),
+            )
+            connection.execute("COMMIT")
+            return True
+        except F0Error:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        except sqlite3.Error as error:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise _map_sqlite_error(error) from None
+
+
+def load_stored_package(data_dir: Path, requested_story_id: str) -> StoryPackageSnapshot:
+    with open_database(data_dir) as connection:
+        try:
+            row = connection.execute(
+                """
+                SELECT package_id, story_id, schema_version, generator_name, generator_version,
+                       input_fingerprint, payload_json, built_at
+                FROM story_packages WHERE story_id = ?
+                """,
+                (requested_story_id,),
+            ).fetchone()
+        except sqlite3.Error as error:
+            raise _map_sqlite_error(error) from None
+    if row is None:
+        raise F0Error(
+            "E_PACKAGE_NOT_BUILT", "Story package does not exist; build the package and retry"
+        )
+    return _package_from_row(row)

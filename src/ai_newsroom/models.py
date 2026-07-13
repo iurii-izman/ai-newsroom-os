@@ -82,3 +82,16 @@ class StoryPackagePayload(BaseModel):
     story: PackageStory
     sources: list[PackageSource] = Field(min_length=1, max_length=1)
     claims: list[MockClaim] = Field(min_length=1, max_length=1)
+
+
+class StoryPackageSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    package_id: str
+    story_id: str
+    schema_version: Literal[1]
+    generator_name: Literal["mock"]
+    generator_version: Literal["mock-v1"]
+    input_fingerprint: str
+    payload_json: str
+    built_at: str

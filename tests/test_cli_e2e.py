@@ -59,3 +59,29 @@ def test_framework_usage_and_help() -> None:
         else:
             assert result.exit_code != 0
         assert "Traceback" not in result.output
+
+
+def test_package_build_cli(tmp_path: Path) -> None:
+    arguments = ["--data-dir", str(tmp_path)]
+    assert runner.invoke(app, [*arguments, "db", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            app,
+            [
+                *arguments,
+                "harvest",
+                "run",
+                "--fixture",
+                "tests/fixtures/feeds/sample.xml",
+            ],
+        ).exit_code
+        == 0
+    )
+    built = runner.invoke(app, [*arguments, "package", "build", "story_55c2bc7f60628d20cb9acd4c"])
+    assert built.exit_code == 0
+    assert built.stdout == "package_id=pkg_17e9b7502f7bc00db437b993 created\n"
+    repeated = runner.invoke(
+        app, [*arguments, "package", "build", "story_55c2bc7f60628d20cb9acd4c"]
+    )
+    assert repeated.exit_code == 0
+    assert repeated.stdout.endswith(" unchanged\n")

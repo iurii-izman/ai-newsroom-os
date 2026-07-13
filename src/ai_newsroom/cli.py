@@ -8,15 +8,18 @@ import typer
 
 from ai_newsroom.database import harvest_snapshots, init_database, list_stories
 from ai_newsroom.models import F0Error
+from ai_newsroom.package_builder import build_package
 from ai_newsroom.rss import read_rss_fixture
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 db_app = typer.Typer(no_args_is_help=True)
 harvest_app = typer.Typer(no_args_is_help=True)
 stories_app = typer.Typer(no_args_is_help=True)
+package_app = typer.Typer(no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(harvest_app, name="harvest")
 app.add_typer(stories_app, name="stories")
+app.add_typer(package_app, name="package")
 
 
 def _now() -> str:
@@ -70,6 +73,15 @@ def stories_list(
     try:
         for story, title in list_stories(ctx.obj["data_dir"]):
             typer.echo(story.id if ids_only else f"{story.id}\t{title}")
+    except F0Error as error:
+        _fail(error)
+
+
+@package_app.command("build")
+def package_build(ctx: typer.Context, story_id: str) -> None:
+    try:
+        package_id, created = build_package(ctx.obj["data_dir"], story_id, _now())
+        typer.echo(f"package_id={package_id} {'created' if created else 'unchanged'}")
     except F0Error as error:
         _fail(error)
 
