@@ -1,0 +1,9 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "disabled"
+model_reasoning_effort = "high"
+model_verbosity = "medium"
+project_doc_max_bytes = 32768
+
+[sandbox_workspace_write]
+network_access = false

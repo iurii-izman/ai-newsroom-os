@@ -1,0 +1,579 @@
+# F0 Technical Specification
+
+Version: `0.6-owner-reviewed`  
+Status: `READY_FOR_F0`  
+Target: Foundation Sprint F0 only.
+
+This file is the only normative source for F0 implementation.
+
+## 1. Document Authority
+
+Authority order:
+
+1. `F0_TECHNICAL_SPEC.md` — sole normative source for F0;
+2. `docs/f0-minimal-scope.md` — derived non-normative checklist;
+3. `PROJECT_VISION.md` — non-normative product context;
+4. `docs/open-decisions.md` — future owner decisions;
+5. `docs/f0-risk-register.md` — operational risks;
+6. `PROJECT_FOUNDATION.md`, `PROJECT_FOUNDATION.vNext.md` and the Ultra-audit documents — historical context.
+
+If any documents conflict, this specification wins for F0. Normative terms `MUST`, `MUST NOT`, `SHOULD`, `SHOULD NOT` and `MAY` use their ordinary requirements meaning.
+
+## 2. Objective, Scope and Process Constraint
+
+The complete F0 vertical slice is:
+
+```text
+local RSS 2.0 fixture
+→ normalized immutable SourceSnapshot
+→ SQLite schema v1
+→ one Story per SourceSnapshot
+→ deterministic Mock StoryPackageSnapshot
+→ story-package.json + story-package.md
+```
+
+F0 validates only technical repeatability, determinism, lineage and resource fit. It does not validate editorial usefulness, audience, format, monetization, lead generation or production readiness.
+
+Two tracks proceed in parallel:
+
+```text
+Track A — Content Validation:
+manual research → manual script → manual production → publish → measure
+
+Track B — Technical Foundation:
+F0 → F1 → F2 → F3
+```
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| PROC-01 | Technical F0 `MUST NOT` block the manual content pilot. | Owner review confirms Track A can run without F0 software. |
+| PROC-02 | F0 target is 2–4 focused working days. After core DoD passes, further hardening `MUST` require an observed failure or a new owner-approved finding; engineering polish alone is insufficient. | Implementation report states elapsed focused days and cites the trigger for any post-DoD hardening. |
+
+These are process constraints, not automated software tests.
+
+## 3. Target Environment and Resources
+
+```text
+Windows 11
+Python 3.12.x
+Ryzen 3 5300U
+16 GB RAM
+no GPU requirement
+no Docker
+single synchronous process
+```
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| ENV-01 | Runtime, tests and demo `MUST` work on the target above without GPU or Docker. | Full DoD runs on the target; repository scan finds no Docker requirement. |
+| ENV-02 | Runtime, tests and demo `MUST` make no network or external API connection. Dependency installation is outside this runtime boundary. | Socket-blocking tests and an offline DoD run after dependencies are installed. |
+| ENV-03 | Peak working set of 512 MB `MAY` be used as a manual sanity target, but `MUST NOT` be a flaky automated gate. | Implementation report labels the value `measured`, `estimated` or `not measured`; it never invents a measurement. |
+
+## 4. Dependencies and Architecture
+
+Direct runtime dependencies are limited to:
+
+- Typer;
+- Pydantic v2.
+
+Direct development dependencies are limited to:
+
+- pytest;
+- Ruff;
+- mypy.
+
+Transitive dependencies resolved from those direct dependencies are allowed. Core I/O uses the standard library, including as needed `sqlite3`, `xml.etree.ElementTree`, `json`, `hashlib`, `urllib.parse`, `pathlib`, `email.utils` and `unicodedata`.
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| DEP-01 | Project-declared direct runtime and development dependencies `MUST` match the lists above. | Audit project dependency declarations, not the entire transitive lock graph. |
+| DEP-02 | No additional direct dependency `MAY` be added without a concrete F0 consumer, an approved spec update and an explanation in the implementation report. | Diff and report contain all three items, or the dependency is absent. |
+| ARCH-01 | F0 `MUST` be a synchronous single-process modular monolith; domain code `SHOULD NOT` import Typer or SQLite. CLI is the composition root. | Import-boundary test or review. |
+| ARCH-02 | SQLite access uses one concrete stdlib `sqlite3` module. F0 `MUST NOT` introduce a generic repository abstraction or migration framework. | Code/import scan. |
+
+## 5. Explicit Non-Goals
+
+F0 `MUST NOT` implement or pre-create:
+
+- HTTP, live RSS or manual URL ingestion;
+- fuzzy deduplication, clustering, multi-source merge or review queue;
+- Claim table/Ledger, Brief, Score, Angle, Script, ProductionPlan, Publication, Metrics, Experiment or Lesson;
+- state machine, transition history or human-approval CLI;
+- real LLM, provider protocol, prompts, retry/cost subsystem or file-fixture provider;
+- YAML configuration, ORM, migrations or compatibility layer;
+- UI, API, Docker, workers, n8n, TTS, video, publishing, cloud or platform adapters;
+- F1 migration or multi-source merge semantics.
+
+Repository/schema/CLI/dependency scans are the acceptance evidence for these exclusions.
+
+## 6. Fixture and RSS Boundary
+
+### 6.1. Bytes and encoding
+
+The fixture is a local regular file no larger than 5 MiB. Read bytes first. A leading UTF-8 BOM (`EF BB BF`) is removed before strict UTF-8 decoding. UTF-8 without BOM and UTF-8 with BOM are accepted; decoding failure or an XML declaration naming another encoding returns `E_FIXTURE_INVALID`. The decoded feed may contain no more than 500 direct `item` elements.
+
+### 6.2. Supported XML
+
+The supported subset has an exact `rss` root, exactly one direct `channel`, and zero to 500 direct `item` children. Atom and any other root are unsupported. A case-insensitive pre-parse scan for `<!DOCTYPE` or `<!ENTITY` rejects the entire fixture before XML parsing and before database writes. Parsing uses `xml.etree.ElementTree`; F0 has no HTML sanitizer.
+
+For each item:
+
+- one non-empty direct `title` is required;
+- one direct `link` is required;
+- `description` is used when present, otherwise `summary`, otherwise empty string;
+- `pubDate` is optional;
+- duplicate selected fields are rejected as `E_FIXTURE_INVALID`;
+- GUID is not an identity input.
+
+XML text nodes are concatenated in document order. The XML parser decodes XML entities. Markup encoded as text remains literal text; F0 does not strip HTML-looking tags from an encoded summary.
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| RSS-01 | The whole fixture `MUST` validate, normalize and produce all records before the write transaction starts. Any invalid item `MUST` leave row counts unchanged. | Mixed-validity fixture test. |
+| RSS-02 | Empty channel `MAY` succeed with zero items and no writes; unsupported root, Atom, DTD, ENTITY, limit or encoding failure `MUST` return `E_FIXTURE_INVALID`. | Boundary fixtures assert outcome and unchanged counts. |
+
+## 7. Text and Date Normalization
+
+All extracted strings first normalize newlines in this order: `CRLF → LF`, then remaining `CR → LF`.
+
+### 7.1. Title
+
+Apply exactly:
+
+1. concatenate XML text nodes in document order;
+2. normalize newlines;
+3. replace every run of Unicode whitespace with one ASCII space;
+4. trim leading/trailing whitespace;
+5. normalize Unicode NFC;
+6. reject if empty;
+7. reject if longer than 500 Unicode code points.
+
+### 7.2. Summary
+
+Apply exactly:
+
+1. concatenate selected description/summary text, or use empty string;
+2. normalize newlines;
+3. trim Unicode whitespace only at the two outer edges;
+4. normalize Unicode NFC;
+5. preserve internal spaces, TAB and LF;
+6. reject the whole fixture if longer than 10,000 Unicode code points.
+
+No value is silently truncated.
+
+### 7.3. Forbidden controls
+
+After XML decoding, title or summary containing U+0000–U+0008, U+000B, U+000C, U+000E–U+001F or U+007F rejects the whole fixture. TAB and LF are allowed in summary; title whitespace collapsing turns them into ASCII space.
+
+### 7.4. Dates
+
+- absent: `published_at=null`, `published_at_raw=null`;
+- `email.utils.parsedate_to_datetime` result with explicit timezone: convert to UTC and serialize exactly `YYYY-MM-DDTHH:MM:SSZ`; `published_at_raw=null`;
+- missing timezone, malformed or unsupported: `published_at=null`; `published_at_raw` is the trimmed NFC original string.
+
+Local timezone `MUST NOT` be guessed. Microseconds are not exported.
+
+### 7.5. Normative vectors
+
+String cells below use JSON-style escapes to expose control characters.
+
+| Case | Input | Expected normalized value |
+|---|---|---|
+| Cyrillic title | `"  Новый AI-релиз  "` | `"Новый AI-релиз"` |
+| Combining Unicode | `"Cafe\u0301"` | `"Café"` (U+00E9) |
+| CRLF/CR summary | `"строка 1\r\nстрока 2\rстрока 3"` | `"строка 1\nстрока 2\nстрока 3"` |
+| Repeated title whitespace | `"  Новый\t  AI\n релиз  "` | `"Новый AI релиз"` |
+| Multiline summary | `"  first  \n second\tvalue  "` | `"first  \n second\tvalue"` |
+| Encoded markup summary | XML text `&lt;b&gt;AI&lt;/b&gt;` | `"<b>AI</b>"` |
+| Absent date | no `pubDate` | `published_at=null`, `published_at_raw=null` |
+| Aware date | `"Mon, 13 Jul 2026 15:04:05 +0300"` | `published_at="2026-07-13T12:04:05Z"`, raw `null` |
+| Naive date | `"Mon, 13 Jul 2026 15:04:05"` | `published_at=null`, raw unchanged |
+| Malformed date | `"  not-a-date  "` | `published_at=null`, raw `"not-a-date"` |
+
+Each vector is a required unit test.
+
+## 8. URL Validation and Canonicalization
+
+### 8.1. Validation
+
+After trimming Unicode whitespace, the URL must be absolute, use `http` or `https`, have a hostname, have no username/password, expose a valid port and be no longer than 4096 Unicode code points before canonicalization. Failure rejects the whole fixture before writes.
+
+### 8.2. Canonicalization order
+
+1. trim Unicode whitespace;
+2. parse with `urllib.parse.urlsplit`;
+3. lowercase scheme;
+4. convert a DNS hostname with built-in IDNA encoding, then lowercase it;
+5. restore brackets around an IPv6 hostname;
+6. remove port 80 for HTTP and 443 for HTTPS;
+7. retain a valid non-default port;
+8. replace empty path with `/`;
+9. preserve path text and case;
+10. remove fragment;
+11. parse query using `urllib.parse.parse_qsl(..., keep_blank_values=True)`, preserving duplicates and pair order;
+12. remove a pair when its decoded key, case-insensitively, starts with `utm_` or equals `fbclid` or `gclid`;
+13. preserve relative order of all remaining pairs;
+14. deterministically re-encode the remaining pair list with `urllib.parse.urlencode`;
+15. do not sort remaining query pairs.
+
+Rationale: F0 prefers a false duplicate over an incorrect semantic merge.
+
+### 8.3. Normative vectors
+
+| Case | Input | Expected |
+|---|---|---|
+| Scheme/host case | ` HTTPS://Example.COM/News ` | `https://example.com/News` |
+| Default HTTP port + empty path | `http://Example.com:80` | `http://example.com/` |
+| Default HTTPS port | `https://Example.com:443/a` | `https://example.com/a` |
+| Non-default port | `https://Example.com:8443/a` | `https://example.com:8443/a` |
+| Fragment | `https://example.com/a#part` | `https://example.com/a` |
+| Duplicate keys | `https://example.com/?a=1&a=2` | unchanged |
+| Blank values | `https://example.com/?a=&b` | `https://example.com/?a=&b=` |
+| Mixed-case tracking | `https://example.com/?A=1&UtM_Source=x&b=2&FBCLID=y&GCLID=z` | `https://example.com/?A=1&b=2` |
+| Meaningful order | `https://example.com/?b=2&a=1` | unchanged; order remains `b`, then `a` |
+| Stdlib re-encode | `https://example.com/?q=a%20b&x=%2f` | `https://example.com/?q=a+b&x=%2F` |
+| IDN | `https://пример.рф/путь` | `https://xn--e1afmkfd.xn--p1ai/путь` |
+| IPv6 + default port | `http://[2001:DB8::1]:80/a` | `http://[2001:db8::1]/a` |
+| Credentials | `https://user:pass@example.com/a` | reject `E_FIXTURE_INVALID` |
+| Invalid port | `https://example.com:99999/a` | reject `E_FIXTURE_INVALID` |
+
+Each vector is a required unit test.
+
+## 9. Domain Model and Identity
+
+### 9.1. SourceSnapshot
+
+Fields:
+
+- `id`;
+- `original_url`: trimmed validated input URL before canonicalization;
+- `canonical_url`;
+- normalized `title` and `summary_text`;
+- `published_at`, `published_at_raw`;
+- `discovered_at`: aware UTC operational timestamp excluded from identity and exports;
+- `content_hash`.
+
+SourceSnapshots are immutable. Same canonical URL with changed normalized content creates a new SourceSnapshot and Story; old rows remain. Different URLs remain separate Stories even with identical content/title.
+
+### 9.2. Story
+
+Story contains exactly:
+
+```text
+id
+primary_source_id
+```
+
+`primary_source_id` is a unique FK to `sources.id`. Story title is never stored. Any Story title is computed from `SourceSnapshot.title` referenced by `primary_source_id`; package build and exports use that source title.
+
+### 9.3. StoryPackageSnapshot and MockClaim
+
+Stored package fields are `package_id`, `story_id`, `schema_version=1`, `generator_name="mock"`, `generator_version="mock-v1"`, `input_fingerprint`, `payload_json`, `built_at`. `built_at` is operational and excluded from payload/exports.
+
+Each package contains exactly one MockClaim:
+
+- text: literal `RSS item reports: ` plus the computed Story title;
+- type: `VENDOR_CLAIM`;
+- status: `UNVERIFIED`;
+- qualifier: `Fixture metadata only; no independent or human verification.`;
+- `source_ids`: a one-element list containing the Story source ID.
+
+### 9.4. Exact identity definitions
+
+Canonical identity JSON is UTF-8, Unicode unescaped, object keys lexicographically sorted, separators `,` and `:` without insignificant whitespace, and no final LF. A full SHA-256 is exactly 64 lowercase hexadecimal characters without prefix; an ID suffix is the first 24 characters.
+
+Canonical item JSON contains exactly `title`, `summary_text`, `published_at` and `published_at_raw`. `content_hash` is SHA-256 of those bytes.
+
+```text
+source_id = "src_" + first24(sha256_utf8(canonical_url + "\n" + content_hash))
+story_id  = "story_" + first24(sha256_utf8(source_id))
+claim_id  = "claim_" + first24(sha256_utf8(
+  source_id + "\n" + claim_text + "\nVENDOR_CLAIM\nUNVERIFIED"
+))
+```
+
+Package input JSON contains exactly `schema_version=1`, `generator_name="mock"`, `generator_version="mock-v1"`, `story_id` and an ID-sorted `sources` list whose objects contain exactly `id` and `content_hash`.
+
+```text
+input_fingerprint = sha256(package_input_json_bytes)
+package_id = "pkg_" + first24(sha256_utf8("story-package\n" + input_fingerprint))
+```
+
+### 9.5. Independent schema-v1 reference vector
+
+Result after the owner normalization clarification: `UNCHANGED`.
+
+```text
+item_json={"published_at":null,"published_at_raw":"2026-07-13 10:00","summary_text":"Кратко","title":"Тест AI"}
+content_hash=e004ecf4d7bb2bd98fe745ec7180f40a37ffb1a67ef40bfa43b5eacbbbadbc7d
+canonical_url=https://example.com/news
+source_id=src_58343a9a5ffae3037a3f73bf
+story_id=story_55c2bc7f60628d20cb9acd4c
+claim_text=RSS item reports: Тест AI
+claim_id=claim_11806810946d69ba4de2ccd4
+package_input_json={"generator_name":"mock","generator_version":"mock-v1","schema_version":1,"sources":[{"content_hash":"e004ecf4d7bb2bd98fe745ec7180f40a37ffb1a67ef40bfa43b5eacbbbadbc7d","id":"src_58343a9a5ffae3037a3f73bf"}],"story_id":"story_55c2bc7f60628d20cb9acd4c"}
+input_fingerprint=bd9e982b780c713eaad078c3129e6ddebec56fcc6b5cba0bf951547ae31fda8f
+package_id=pkg_17e9b7502f7bc00db437b993
+```
+
+The vector stayed unchanged because its title/summary were already NFC and whitespace-stable, its raw date was already trimmed, its canonical URL is unaffected by the clarified algorithm, Story title was never part of Story/package identity input, and the identity algorithm did not change.
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| ID-01 | Implementations `MUST` reproduce every value in the vector exactly. | Independent fixed-vector unit test. |
+| ID-02 | IDs, payload and exported bytes `MUST NOT` depend on current time, absolute path, SQLite row order or randomness. | Two isolated data directories produce equal IDs/hashes. |
+
+## 10. Persistence and Disposable Lifecycle
+
+F0 schema v1 and F0 data are disposable technical artifacts. No forward migration from F0 schema v1 to F1 is guaranteed. F1 may start with a clean database after Story identity, merge and retention decisions are approved. F0 does not predesign F1 migration or compatibility.
+
+Exactly four tables exist:
+
+```sql
+schema_meta(
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  version INTEGER NOT NULL CHECK(version = 1)
+)
+
+sources(
+  id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(id)=28 AND substr(id,1,4)='src_'
+          AND substr(id,5) NOT GLOB '*[^0-9a-f]*'),
+  original_url TEXT NOT NULL CHECK(length(original_url)>0),
+  canonical_url TEXT NOT NULL CHECK(length(canonical_url)>0),
+  title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 500),
+  summary_text TEXT NOT NULL CHECK(length(summary_text)<=10000),
+  published_at TEXT NULL CHECK(published_at IS NULL OR length(published_at)>0),
+  published_at_raw TEXT NULL CHECK(published_at_raw IS NULL OR length(published_at_raw)>0),
+  discovered_at TEXT NOT NULL CHECK(length(discovered_at)>0),
+  content_hash TEXT NOT NULL
+    CHECK(length(content_hash)=64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+  UNIQUE(canonical_url, content_hash)
+)
+
+stories(
+  id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(id)=30 AND substr(id,1,6)='story_'
+          AND substr(id,7) NOT GLOB '*[^0-9a-f]*'),
+  primary_source_id TEXT UNIQUE NOT NULL REFERENCES sources(id)
+)
+
+story_packages(
+  package_id TEXT PRIMARY KEY NOT NULL
+    CHECK(length(package_id)=28 AND substr(package_id,1,4)='pkg_'
+          AND substr(package_id,5) NOT GLOB '*[^0-9a-f]*'),
+  story_id TEXT UNIQUE NOT NULL REFERENCES stories(id),
+  schema_version INTEGER NOT NULL CHECK(schema_version=1),
+  generator_name TEXT NOT NULL CHECK(generator_name='mock'),
+  generator_version TEXT NOT NULL CHECK(generator_version='mock-v1'),
+  input_fingerprint TEXT NOT NULL
+    CHECK(length(input_fingerprint)=64
+          AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+  payload_json TEXT NOT NULL CHECK(length(payload_json) BETWEEN 2 AND 1000000),
+  built_at TEXT NOT NULL CHECK(length(built_at)>0)
+)
+```
+
+The DDL `MUST NOT` depend on SQLite JSON1. Full payload validation belongs to the application layer using `json.loads`, Pydantic, schema version, semantic lineage and recomputed identities.
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| DB-01 | Every connection `MUST` enable foreign keys and a 5-second busy timeout; writes `MUST` use explicit transactions. | PRAGMA and rollback integration tests. |
+| DB-02 | `db init` `MUST` be idempotent and validate the single metadata row/version. It `MUST NOT` auto-migrate, repair, delete or recreate an incompatible/corrupt DB. | Init-twice and copied failure DB tests. |
+| DB-03 | Successful Source/Story inserts `MUST` commit together after whole-fixture validation. | Injected write failure rolls back both. |
+| DB-04 | F0 `MUST` store only normalized RSS metadata and bounded summary, not raw XML, full HTML/PDF or LLM response. | Schema/content review. |
+
+## 11. CLI and Errors
+
+The CLI contains exactly:
+
+```text
+ai-newsroom --data-dir PATH db init
+ai-newsroom --data-dir PATH harvest run --fixture FILE
+ai-newsroom --data-dir PATH stories list [--ids-only]
+ai-newsroom --data-dir PATH package build STORY_ID
+ai-newsroom --data-dir PATH package export STORY_ID --format json|markdown|all [--force]
+```
+
+`--data-dir` defaults to `data`; `pathlib` handles spaces and Unicode. There are no future placeholder commands.
+
+Stable project error codes:
+
+| Code | Condition | Safe action |
+|---|---|---|
+| `E_FIXTURE_INVALID` | Fixture path/encoding/XML/item/content/URL failure | Correct or replace fixture; no rows were written |
+| `E_DB_SCHEMA` | Incompatible/tampered schema, identity or payload | Use a clean F0 data dir or restore a copy; no auto-repair |
+| `E_DB_LOCKED` | Busy timeout | Close the other writer and retry |
+| `E_DB_CORRUPT` | SQLite corruption | Preserve original and diagnose/restore a copy |
+| `E_STORY_NOT_FOUND` | Build Story ID absent | List Story IDs and retry |
+| `E_PACKAGE_NOT_BUILT` | Export package absent | Build the package, then retry |
+| `E_EXPORT_CONFLICT` | Existing requested file differs | Review; use explicit `--force` only to replace |
+| `E_EXPORT_PARTIAL` | Obvious mixed pair after interrupted `all` export | Review; rerun `--format all --force` |
+| `E_UNEXPECTED` | Unmapped internal failure | Preserve data and inspect sanitized diagnostics |
+
+Expected project errors return non-zero, concise stderr, no traceback/secrets/raw fixture body/summary, and do not mutate committed state. Typer/Click syntax errors may use standard framework usage output and exit code. Tests for missing argument, unknown command/option and invalid enum assert non-zero, concise usage guidance and no traceback; `--help` exits 0. F0 does not build a custom parser/error framework for usage errors.
+
+Every mutating command reports created/unchanged counts or resulting ID. `stories list --ids-only` prints one ID per line sorted by ID; empty DB is exit 0 with empty output.
+
+## 12. Story Package and Export Contract
+
+### 12.1. Persisted payload
+
+`payload_json` is the sole package source of truth. It is validated and serialized as canonical compact JSON (UTF-8, Unicode unescaped, sorted object keys, compact separators, no final LF). Export renderers parse and revalidate it; Markdown is a derived view.
+
+Top-level payload fields:
+
+| Field | Exact contract |
+|---|---|
+| `schema_version` | integer `1` |
+| `package_id` | `pkg_` + 24 lowercase hex |
+| `generation_mode` | exact string `MOCK` |
+| `publishable` | boolean `false` |
+| `mock_notice` | `Demo-only package; no human verification; do not publish.` |
+| `generator` | object with exactly `name="mock"`, `version="mock-v1"` |
+| `input_fingerprint` | 64 lowercase hex |
+| `story` | object with exactly `id` and computed `title` |
+| `sources` | one-element array containing the exact source object below |
+| `claims` | one-element array containing the normative MockClaim |
+
+Source object fields, exactly:
+
+| Field | Exact contract |
+|---|---|
+| `canonical_url` | canonical absolute HTTP(S) URL |
+| `content_hash` | 64 lowercase hex |
+| `id` | `src_` + 24 lowercase hex |
+| `published_at` | UTC string or null |
+| `published_at_raw` | normalized raw string or null; always present |
+| `title` | normalized SourceSnapshot title |
+
+The ambiguous field `url` is not part of schema v1. The Story title is computed from the immutable source and is not persisted in the `stories` table.
+
+Claim object fields, exactly: `id`, `text`, `type`, `status`, `source_ids`, `qualifier`, with the values and derivation in §9.3–§9.4.
+
+### 12.2. Files and bytes
+
+```text
+<data-dir>/exports/<story-id>/story-package.json
+<data-dir>/exports/<story-id>/story-package.md
+```
+
+JSON export is UTF-8 without BOM, Unicode unescaped, object keys sorted, indent 2, LF endings, one final LF, and ID-sorted arrays. It contains no current time, absolute path, implicit row order or randomness.
+
+Markdown is UTF-8 without BOM and LF-only. It escapes untrusted labels and shows package ID, Story ID, source ID, canonical URL, content hash, normalized date, raw date when non-null, the sole claim and its source reference. It includes exact lines:
+
+```text
+Generation mode: MOCK
+Publishable: false
+Warning: Demo-only package; no human verification; do not publish.
+```
+
+No normative runtime example uses a fake hash value.
+
+## 13. Proportional Integrity Validation
+
+Before package build and before export, the application `MUST` validate:
+
+1. source ID against canonical URL and content hash;
+2. content hash against normalized source content;
+3. Story ID against source ID;
+4. existence of the Story FK;
+5. package fingerprint against immutable inputs;
+6. package ID against fingerprint;
+7. payload via `json.loads`, Pydantic and schema version;
+8. exact single-source lineage;
+9. exactly one MockClaim and its ID/text/type/status/qualifier/source ID derivation.
+
+Mismatch returns `E_DB_SCHEMA` without export or automatic repair. `stories list` does not recompute the package graph. F0 does not attempt to be a tamper-evident datastore.
+
+Targeted direct-SQL tests cover at minimum:
+
+- source content/hash mismatch;
+- Story/source relation mismatch when injectable without an earlier constraint failure;
+- package fingerprint/payload mismatch;
+- modified or extra claim.
+
+## 14. Proportional Export Recovery
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| EXP-01 | All requested files `MUST` render, validate and preflight before any replacement. | Injected pre-replace failure preserves existing bytes. |
+| EXP-02 | Each replacement `MUST` use a sibling temporary file and per-file atomic `os.replace`; no group atomicity is promised and no file may be truncated. | Integration test inspects whole files. |
+| EXP-03 | A differing file `MUST NOT` be overwritten without `--force`; a byte-identical file is a successful no-op. | Collision/no-op/force tests. |
+| EXP-04 | The next `--format all` `MUST` detect an obvious mixed expected/missing-or-differing pair as `E_EXPORT_PARTIAL`. | Partial-pair recovery test. |
+| EXP-05 | Failure injected after the first replacement `SHOULD` be a deterministic integration test. Actual process-kill simulation `MUST NOT` be required. | Test review. |
+
+This edge hardening must not introduce a manifest service, filesystem transaction abstraction or workflow engine, and must not delay completion after core DoD passes.
+
+## 15. Test Strategy
+
+Behavior matters more than test count. Required areas:
+
+- text/date vectors in §7;
+- URL vectors in §8;
+- identity/hash reference vector in §9.5;
+- invalid RSS, Atom, DTD/ENTITY, non-UTF-8 and oversized fixture;
+- repeat init/harvest/build/export;
+- same URL with changed content; different URLs with identical content;
+- rollback, DB version mismatch, lock and corruption paths;
+- Source → Story → package → claim lineage;
+- JSON and Markdown byte goldens;
+- Cyrillic, combining Unicode and a Windows path with spaces;
+- no-network socket guard;
+- manual edit conflict/no-op/force and proportional partial recovery;
+- targeted tamper cases in §13;
+- standard Typer usage behavior;
+- direct dependency declaration audit;
+- repeated end-to-end flow.
+
+Tests do not require SQLite JSON1, generic validation on every list read or a real process-kill simulation. `ruff`, `mypy` and `pytest` pass from the locked environment.
+
+## 16. Security and Retention
+
+- external fixture text is untrusted data and never drives shell/eval/import/LLM execution;
+- secrets are neither required nor read/logged;
+- raw fixture bodies and summaries are not dumped on failure;
+- export paths derive only from validated hash IDs, never titles/URLs;
+- Markdown escapes untrusted labels;
+- F0 stores bounded normalized metadata/summary only;
+- there are no assets, synthetic media, public figures or publishing in F0.
+
+Rights, corrections, AI disclosure and platform policy gates are deferred until their first real consumer.
+
+## 17. Definition of Done
+
+From repository root on the target environment:
+
+```powershell
+uv sync --frozen
+uv run ruff check .
+uv run mypy src
+uv run pytest
+uv run ai-newsroom --data-dir .demo-f0 db init
+uv run ai-newsroom --data-dir .demo-f0 harvest run --fixture tests/fixtures/feeds/sample.xml
+$storyId = uv run ai-newsroom --data-dir .demo-f0 stories list --ids-only | Select-Object -First 1
+uv run ai-newsroom --data-dir .demo-f0 package build $storyId
+uv run ai-newsroom --data-dir .demo-f0 package export $storyId --format all
+```
+
+The official fixture has exactly one valid Cyrillic RSS item. Repeat harvest/build/export and confirm:
+
+- same IDs;
+- same row counts;
+- same JSON SHA-256;
+- same Markdown SHA-256;
+- no network;
+- no Docker;
+- no GPU requirement;
+- target machine has 16 GB RAM.
+
+Every required behavior above has passing evidence. Test count alone is irrelevant. A manual review confirms exact lineage and unmistakable nonpublishability. The final implementation report distinguishes resource evidence as measured, estimated or not measured and does not claim that F0 validates product hypotheses.
+
+## 18. Future Boundary and Open Decisions
+
+- **F1:** owner first approves multi-source Story identity/manual merge, retention and initial live-source set. F1 may start from a clean DB.
+- **F2:** owner chooses one real LLM provider/data boundary after evaluation; no provider seam exists in F0.
+- **F3:** validated editorial/production artifacts are designed from the proven manual process.
+
+The manual content pilot proceeds independently in Track A. Open owner choices are listed in `docs/open-decisions.md`; no unresolved choice there blocks F0.
+

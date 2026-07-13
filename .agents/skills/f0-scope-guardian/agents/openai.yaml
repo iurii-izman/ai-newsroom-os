@@ -1,0 +1,6 @@
+interface:
+  display_name: "F0 Scope Guardian"
+  short_description: "Check F0 plans and diffs for scope violations"
+
+policy:
+  allow_implicit_invocation: false
