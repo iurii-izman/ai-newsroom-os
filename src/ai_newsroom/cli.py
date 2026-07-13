@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 
 from ai_newsroom.database import harvest_snapshots, init_database, list_stories
+from ai_newsroom.exporters import ExportFormat, export_package
 from ai_newsroom.models import F0Error
 from ai_newsroom.package_builder import build_package
 from ai_newsroom.rss import read_rss_fixture
@@ -82,6 +83,22 @@ def package_build(ctx: typer.Context, story_id: str) -> None:
     try:
         package_id, created = build_package(ctx.obj["data_dir"], story_id, _now())
         typer.echo(f"package_id={package_id} {'created' if created else 'unchanged'}")
+    except F0Error as error:
+        _fail(error)
+
+
+@package_app.command("export")
+def package_export(
+    ctx: typer.Context,
+    story_id: str,
+    export_format: Annotated[ExportFormat, typer.Option("--format")],
+    force: Annotated[bool, typer.Option("--force")] = False,
+) -> None:
+    try:
+        replaced, unchanged, _paths = export_package(
+            ctx.obj["data_dir"], story_id, export_format, force=force
+        )
+        typer.echo(f"exported={replaced} unchanged={unchanged}")
     except F0Error as error:
         _fail(error)
 

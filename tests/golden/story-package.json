@@ -1,0 +1,38 @@
+{
+  "claims": [
+    {
+      "id": "claim_11806810946d69ba4de2ccd4",
+      "qualifier": "Fixture metadata only; no independent or human verification.",
+      "source_ids": [
+        "src_58343a9a5ffae3037a3f73bf"
+      ],
+      "status": "UNVERIFIED",
+      "text": "RSS item reports: Тест AI",
+      "type": "VENDOR_CLAIM"
+    }
+  ],
+  "generation_mode": "MOCK",
+  "generator": {
+    "name": "mock",
+    "version": "mock-v1"
+  },
+  "input_fingerprint": "bd9e982b780c713eaad078c3129e6ddebec56fcc6b5cba0bf951547ae31fda8f",
+  "mock_notice": "Demo-only package; no human verification; do not publish.",
+  "package_id": "pkg_17e9b7502f7bc00db437b993",
+  "publishable": false,
+  "schema_version": 1,
+  "sources": [
+    {
+      "canonical_url": "https://example.com/news",
+      "content_hash": "e004ecf4d7bb2bd98fe745ec7180f40a37ffb1a67ef40bfa43b5eacbbbadbc7d",
+      "id": "src_58343a9a5ffae3037a3f73bf",
+      "published_at": null,
+      "published_at_raw": "2026-07-13 10:00",
+      "title": "Тест AI"
+    }
+  ],
+  "story": {
+    "id": "story_55c2bc7f60628d20cb9acd4c",
+    "title": "Тест AI"
+  }
+}

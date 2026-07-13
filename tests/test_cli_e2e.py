@@ -85,3 +85,54 @@ def test_package_build_cli(tmp_path: Path) -> None:
     )
     assert repeated.exit_code == 0
     assert repeated.stdout.endswith(" unchanged\n")
+    exported = runner.invoke(
+        app,
+        [
+            *arguments,
+            "package",
+            "export",
+            "story_55c2bc7f60628d20cb9acd4c",
+            "--format",
+            "all",
+        ],
+    )
+    assert exported.exit_code == 0
+    assert exported.stdout == "exported=2 unchanged=0\n"
+    assert (
+        tmp_path
+        / "exports"
+        / "story_55c2bc7f60628d20cb9acd4c"
+        / "story-package.json"
+    ).is_file()
+
+
+def test_export_usage_and_missing_package(tmp_path: Path) -> None:
+    arguments = ["--data-dir", str(tmp_path)]
+    assert runner.invoke(app, [*arguments, "db", "init"]).exit_code == 0
+    invalid = runner.invoke(
+        app,
+        [
+            *arguments,
+            "package",
+            "export",
+            "story_000000000000000000000000",
+            "--format",
+            "invalid",
+        ],
+    )
+    assert invalid.exit_code != 0
+    assert "Traceback" not in invalid.output
+    missing = runner.invoke(
+        app,
+        [
+            *arguments,
+            "package",
+            "export",
+            "story_000000000000000000000000",
+            "--format",
+            "all",
+        ],
+    )
+    assert missing.exit_code != 0
+    assert "E_PACKAGE_NOT_BUILT" in missing.stderr
+    assert "Traceback" not in missing.output
