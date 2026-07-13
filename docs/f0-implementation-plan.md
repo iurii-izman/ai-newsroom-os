@@ -8,6 +8,13 @@
 - Plan status: `SCOPE_APPROVED`
 - Implementation started: `NO`
 
+## Packaging owner decision
+
+- Decision date: 2026-07-14
+- Status: approved; the previous packaging stop condition is resolved
+- Sole direct build-system dependency: `uv_build>=0.9.30,<0.10.0`
+- Purpose: install the local package and expose the exact `[project.scripts]` console entry point; it is build-time only and does not change the offline runtime, test or demo boundary
+
 ## Scope review
 
 - Review date: 2026-07-14
@@ -38,7 +45,7 @@ The slice proves repeatability, determinism, lineage, safe failure behavior, and
 - Target: Windows 11, Python 3.12.x, Ryzen 3 5300U, 16 GB RAM, no GPU, no Docker, one synchronous process.
 - Runtime, tests, and demo remain offline. Dependency installation is outside that runtime boundary.
 - Delivery is timeboxed to 2–4 focused working days. After core Definition of Done passes, hardening stops unless an observed failure or owner-approved finding justifies it.
-- `AGENTS.md`, `.codex/config.toml`, normative documents, and historical Foundation documents remain untouched.
+- After the approved packaging classification patch, `.codex/config.toml`, normative documents, and historical Foundation documents remain untouched during implementation.
 
 ## Non-goals
 
@@ -63,7 +70,11 @@ The slice proves repeatability, determinism, lineage, safe failure behavior, and
 - Ruff
 - mypy
 
-Transitive dependencies resolved from these direct dependencies are allowed. `uv` manages the environment and lock. No other direct dependency, including a build/runtime helper, is planned; if the exact `ai-newsroom` entry point cannot be packaged without another direct dependency, implementation stops for an owner-approved specification decision.
+### Build system
+
+- `uv_build>=0.9.30,<0.10.0`
+
+`uv_build` is the sole direct build-system dependency and is used only to install the local package and expose `[project.scripts]`; it is not a runtime or development dependency. Transitive dependencies resolved from these direct dependencies are allowed. `uv` manages the environment and lock. No other direct runtime, development or build-system dependency is approved.
 
 ## Proposed file tree
 
@@ -71,7 +82,7 @@ The implementation creates or modifies exactly the following 21 files. No empty 
 
 | File | Responsibility | Normative requirements served and why needed now |
 |---|---|---|
-| `pyproject.toml` | Python 3.12 project metadata, exact direct dependencies, `ai-newsroom` entry point, and Ruff/mypy/pytest settings | DEP-01/02, CLI §11, DoD §17; required to install and run the specified CLI and checks |
+| `pyproject.toml` | Python 3.12 project metadata, exact direct dependencies, `uv_build` build system, `ai-newsroom` entry point, and Ruff/mypy/pytest settings | DEP-01/02, CLI §11, DoD §17; required to install and run the specified CLI and checks |
 | `uv.lock` | Frozen transitive dependency graph | Reproducible `uv sync --frozen`; required by the DoD |
 | `src/ai_newsroom/cli.py` | Typer composition root, five commands, safe error mapping, and operational timestamps | ARCH-01, CLI §11; the only framework-facing orchestration module |
 | `src/ai_newsroom/models.py` | Immutable domain values and Pydantic schema-v1 package/claim validation | Domain §9, payload §12, integrity §13; provides concrete validation consumers |
@@ -109,7 +120,7 @@ Boundary and invalid fixtures other than `sample.xml` are generated as bounded b
 The five steps fit the 2–4 day timebox. Each step lands observable behavior and tests; no step creates unused modules.
 
 1. **Normalize and validate the local RSS boundary.**
-   - Change: `pyproject.toml`, `uv.lock`, `models.py`, `normalization.py`, `rss.py`, `tests/conftest.py`, `tests/fixtures/feeds/sample.xml`, `tests/test_normalization.py`, `tests/test_rss.py`, and the initial dependency/import checks in `tests/test_project_contracts.py`.
+   - Change: bootstrap `pyproject.toml` with `build-system.requires = ["uv_build>=0.9.30,<0.10.0"]`, `build-system.build-backend = "uv_build"`, and the exact `[project.scripts]` entry point; create `uv.lock`, `models.py`, `normalization.py`, `rss.py`, `tests/conftest.py`, `tests/fixtures/feeds/sample.xml`, `tests/test_normalization.py`, `tests/test_rss.py`, and the initial dependency/import checks in `tests/test_project_contracts.py`.
    - Behavior: strict UTF-8/BOM RSS validation produces normalized immutable values and exact reference-vector IDs without network access.
    - Verification: `uv run pytest tests/test_normalization.py tests/test_rss.py tests/test_project_contracts.py` and `uv run ruff check .`.
 2. **Persist sources and stories and expose init/harvest/list.**

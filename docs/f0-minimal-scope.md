@@ -43,6 +43,7 @@ F0 → F1 → F2 → F3
 - No GPU requirement, no Docker, one synchronous process.
 - Direct runtime: Typer, Pydantic v2.
 - Direct development: pytest, Ruff, mypy.
+- [ ] `pyproject.toml` uses `uv_build>=0.9.30,<0.10.0` as the only approved direct build-system dependency.
 - Transitively resolved packages are allowed.
 - Core I/O uses the standard library.
 - [ ] Dependency audit checks direct declarations, not every transitive lock entry.
@@ -143,4 +144,3 @@ ai-newsroom --data-dir PATH package export STORY_ID --format json|markdown|all [
 - [ ] Manual lineage/nonpublishability review passes.
 - [ ] No product hypothesis is marked validated.
 - [ ] Work stops after core DoD unless evidence or owner approval justifies more hardening.
-
