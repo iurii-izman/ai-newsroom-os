@@ -49,6 +49,22 @@ def test_forbidden_controls(value: str) -> None:
         normalize_summary(value)
 
 
+def test_text_limits_are_exact_and_never_truncate() -> None:
+    assert normalize_title("A" * 500) == "A" * 500
+    assert normalize_summary("A" * 10_000) == "A" * 10_000
+    with pytest.raises(F0Error):
+        normalize_title("A" * 501)
+    with pytest.raises(F0Error):
+        normalize_summary("A" * 10_001)
+    with pytest.raises(F0Error):
+        normalize_title("bad\x00title")
+
+
+def test_url_length_limit_is_enforced_before_canonicalization() -> None:
+    with pytest.raises(F0Error):
+        canonicalize_url("https://example.com/" + "a" * 4090)
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

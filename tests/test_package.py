@@ -73,6 +73,16 @@ def test_story_source_relation_tamper_is_rejected(tmp_path: Path) -> None:
     assert error.value.code == "E_DB_SCHEMA"
 
 
+def test_missing_primary_source_is_rejected_as_schema_tamper(tmp_path: Path) -> None:
+    prepare(tmp_path)
+    with sqlite3.connect(database_path(tmp_path)) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("DELETE FROM sources")
+    with pytest.raises(F0Error) as error:
+        build_package(tmp_path, STORY_ID, NOW)
+    assert error.value.code == "E_DB_SCHEMA"
+
+
 @pytest.mark.parametrize("tamper", ["input_fingerprint", "modified_claim", "extra_claim"])
 def test_existing_package_tamper_is_rejected(tmp_path: Path, tamper: str) -> None:
     prepare(tmp_path)

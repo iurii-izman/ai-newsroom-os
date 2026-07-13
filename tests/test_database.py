@@ -131,3 +131,20 @@ def test_database_lock_maps_to_stable_error(tmp_path: Path) -> None:
     finally:
         locker.execute("ROLLBACK")
         locker.close()
+
+
+def test_mixed_validity_fixture_leaves_existing_rows_unchanged(tmp_path: Path) -> None:
+    init_database(tmp_path)
+    initial = parse_rss_bytes(source(), NOW)
+    harvest_snapshots(tmp_path, initial)
+    before = counts(tmp_path)
+    mixed = (
+        "<rss><channel>"
+        + source().decode().removeprefix("<rss><channel>").removesuffix("</channel></rss>")
+        + "<item><title>Invalid</title><link>file:///not-allowed</link></item>"
+        + "</channel></rss>"
+    ).encode()
+    with pytest.raises(F0Error) as error:
+        parse_rss_bytes(mixed, NOW)
+    assert error.value.code == "E_FIXTURE_INVALID"
+    assert counts(tmp_path) == before

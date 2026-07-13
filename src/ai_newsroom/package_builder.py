@@ -105,15 +105,13 @@ def build_package(data_dir: Path, requested_story_id: str, built_at: str) -> tup
 def load_validated_package(
     data_dir: Path, requested_story_id: str
 ) -> tuple[StoryPackageSnapshot, StoryPackagePayload]:
+    snapshot = load_stored_package(data_dir, requested_story_id)
     try:
         story, source = load_story_source(data_dir, requested_story_id)
     except F0Error as error:
         if error.code == "E_STORY_NOT_FOUND":
-            raise F0Error(
-                "E_PACKAGE_NOT_BUILT", "Story package does not exist; build the package and retry"
-            ) from None
+            raise F0Error("E_DB_SCHEMA", "stored package Story foreign key is missing") from None
         raise
-    snapshot = load_stored_package(data_dir, requested_story_id)
     expected = expected_payload(story, source)
     try:
         decoded = json.loads(snapshot.payload_json)

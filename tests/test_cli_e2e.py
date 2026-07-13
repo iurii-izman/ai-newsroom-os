@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import socket
+import sqlite3
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+import ai_newsroom.cli as cli_module
 from ai_newsroom.cli import app
+from ai_newsroom.database import database_path
 
 runner = CliRunner()
 
@@ -52,7 +58,12 @@ def test_empty_list_and_project_error_are_concise(tmp_path: Path) -> None:
 
 
 def test_framework_usage_and_help() -> None:
-    for arguments in (["--help"], ["unknown"], ["db", "init", "--unknown"]):
+    for arguments in (
+        ["--help"],
+        ["unknown"],
+        ["db", "init", "--unknown"],
+        ["package", "build"],
+    ):
         result = runner.invoke(app, arguments)
         if arguments == ["--help"]:
             assert result.exit_code == 0
@@ -136,3 +147,72 @@ def test_export_usage_and_missing_package(tmp_path: Path) -> None:
     assert missing.exit_code != 0
     assert "E_PACKAGE_NOT_BUILT" in missing.stderr
     assert "Traceback" not in missing.output
+
+
+def _complete_flow(data_dir: Path) -> tuple[str, tuple[int, int, int], str, str]:
+    prefix = ["--data-dir", str(data_dir)]
+    commands = [
+        [*prefix, "db", "init"],
+        [*prefix, "harvest", "run", "--fixture", "tests/fixtures/feeds/sample.xml"],
+    ]
+    for command in commands:
+        assert runner.invoke(app, command).exit_code == 0
+    story = runner.invoke(app, [*prefix, "stories", "list", "--ids-only"])
+    assert story.exit_code == 0
+    selected = story.stdout.strip()
+    assert runner.invoke(app, [*prefix, "package", "build", selected]).exit_code == 0
+    export = [*prefix, "package", "export", selected, "--format", "all"]
+    assert runner.invoke(app, export).exit_code == 0
+    directory = data_dir / "exports" / selected
+    json_hash = hashlib.sha256((directory / "story-package.json").read_bytes()).hexdigest()
+    markdown_hash = hashlib.sha256((directory / "story-package.md").read_bytes()).hexdigest()
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        counts = tuple(
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("sources", "stories", "story_packages")
+        )
+    assert runner.invoke(
+        app,
+        [*prefix, "harvest", "run", "--fixture", "tests/fixtures/feeds/sample.xml"],
+    ).exit_code == 0
+    assert runner.invoke(app, [*prefix, "package", "build", selected]).exit_code == 0
+    assert runner.invoke(app, export).exit_code == 0
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        repeated_counts = tuple(
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("sources", "stories", "story_packages")
+        )
+    assert repeated_counts == counts
+    assert hashlib.sha256((directory / "story-package.json").read_bytes()).hexdigest() == json_hash
+    assert (
+        hashlib.sha256((directory / "story-package.md").read_bytes()).hexdigest()
+        == markdown_hash
+    )
+    return selected, counts, json_hash, markdown_hash
+
+
+def test_two_isolated_repeated_flows_are_deterministic(tmp_path: Path) -> None:
+    first = _complete_flow(tmp_path / "first path")
+    second = _complete_flow(tmp_path / "второй путь")
+    assert first == second
+    assert first[1] == (1, 1, 1)
+
+
+def test_socket_guard_is_active() -> None:
+    with pytest.raises(AssertionError, match="network access is forbidden"):
+        socket.create_connection(("127.0.0.1", 9))
+
+
+def test_unexpected_error_is_sanitized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_with_sensitive_detail(_data_dir: Path) -> bool:
+        raise RuntimeError("secret raw fixture body")
+
+    monkeypatch.setattr(cli_module, "init_database", fail_with_sensitive_detail)
+    result = runner.invoke(app, ["--data-dir", str(tmp_path), "db", "init"])
+    assert result.exit_code != 0
+    assert "E_UNEXPECTED" in result.stderr
+    assert "secret" not in result.output
+    assert "fixture body" not in result.output
+    assert "Traceback" not in result.output

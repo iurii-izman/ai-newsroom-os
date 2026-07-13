@@ -48,6 +48,8 @@ def db_init(ctx: typer.Context) -> None:
         typer.echo(f"database: {'created' if created else 'unchanged'}")
     except F0Error as error:
         _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
 
 
 @harvest_app.command("run")
@@ -64,6 +66,8 @@ def harvest_run(
         )
     except F0Error as error:
         _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
 
 
 @stories_app.command("list")
@@ -76,6 +80,8 @@ def stories_list(
             typer.echo(story.id if ids_only else f"{story.id}\t{title}")
     except F0Error as error:
         _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
 
 
 @package_app.command("build")
@@ -85,6 +91,8 @@ def package_build(ctx: typer.Context, story_id: str) -> None:
         typer.echo(f"package_id={package_id} {'created' if created else 'unchanged'}")
     except F0Error as error:
         _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
 
 
 @package_app.command("export")
@@ -101,6 +109,8 @@ def package_export(
         typer.echo(f"exported={replaced} unchanged={unchanged}")
     except F0Error as error:
         _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
 
 
 def main() -> None:

@@ -306,24 +306,28 @@ def _source_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceSnapshot:
 def load_story_source(data_dir: Path, requested_story_id: str) -> tuple[Story, SourceSnapshot]:
     with open_database(data_dir) as connection:
         try:
-            row = connection.execute(
-                """
-                SELECT stories.id, stories.primary_source_id,
-                       sources.id, sources.original_url, sources.canonical_url, sources.title,
-                       sources.summary_text, sources.published_at, sources.published_at_raw,
-                       sources.discovered_at, sources.content_hash
-                FROM stories
-                JOIN sources ON sources.id = stories.primary_source_id
-                WHERE stories.id = ?
-                """,
+            story_row = connection.execute(
+                "SELECT id, primary_source_id FROM stories WHERE id = ?",
                 (requested_story_id,),
+            ).fetchone()
+            if story_row is None:
+                raise F0Error(
+                    "E_STORY_NOT_FOUND", "Story does not exist; list Story IDs and retry"
+                )
+            source_row = connection.execute(
+                """
+                SELECT id, original_url, canonical_url, title, summary_text, published_at,
+                       published_at_raw, discovered_at, content_hash
+                FROM sources WHERE id = ?
+                """,
+                (story_row[1],),
             ).fetchone()
         except sqlite3.Error as error:
             raise _map_sqlite_error(error) from None
-    if row is None:
-        raise F0Error("E_STORY_NOT_FOUND", "Story does not exist; list Story IDs and retry")
-    story = Story(id=str(row[0]), primary_source_id=str(row[1]))
-    return story, _source_from_row(row[2:])
+    if source_row is None:
+        raise F0Error("E_DB_SCHEMA", "Story primary-source foreign key is missing")
+    story = Story(id=str(story_row[0]), primary_source_id=str(story_row[1]))
+    return story, _source_from_row(source_row)
 
 
 def _package_from_row(row: sqlite3.Row | tuple[object, ...]) -> StoryPackageSnapshot:
