@@ -7,7 +7,7 @@ Scope: first production script and first local vertical MP4 only.
 ## 1. Goal and authority
 
 F3 delivers one validated DeepSeek Story Package → Russian script → Russian neural voice →
-`TEXT_CARD_V1` → playable MP4 path. `F0_TECHNICAL_SPEC.md` and
+`TEXT_CARD_V1_1` → playable MP4 path. `F0_TECHNICAL_SPEC.md` and
 `F1_F2_VERTICAL_MVP_SPEC.md` continue to govern their existing behavior.
 
 The pilot is local and requires manual approval. It does not publish content or claim factual,
@@ -36,6 +36,7 @@ Automated tests are offline. Runtime network is permitted only when the user exp
 ```text
 ai-newsroom --data-dir PATH script build STORY_ID --package-id PACKAGE_ID [--output-dir PATH]
 ai-newsroom video render SCRIPT_JSON [--output-dir PATH] [--voice VOICE]
+    [--cover-title TEXT] [--cover-kicker TEXT]
 ```
 
 `script build` accepts only a validated stored schema-v2 DeepSeek package. Its first-pilot script
@@ -94,25 +95,30 @@ The renderer queries the current voice list once. It chooses `ru-RU-DmitryNeural
 `ru-RU-SvetlanaNeural`, then the first `ru-RU` neural voice, or returns `E_TTS_VOICE`. An explicit
 voice must also be a current Russian neural voice.
 
-Prosody is rate `+5%`, volume `+0%`, pitch `+0Hz`. Only `spoken_text` is sent. No package metadata,
+Prosody is rate `+12%`, volume `+0%`, pitch `+0Hz`. Only `spoken_text` is sent. No package metadata,
 URL, secret, or unrelated file crosses the TTS boundary. Timing from Edge is retained in SRT.
 Failure leaves script files intact, creates no fake MP4, and publishes no success manifest.
 
 ## 9. Visuals and encoding
 
-`TEXT_CARD_V1` renders 1080×1920 original dark cards with high-contrast Cyrillic text, a modest
-accent, source label, scene counter/progress, and generous margins. It uses Segoe UI, Arial, or
-another installed Cyrillic-capable system font; font files are never committed.
+`TEXT_CARD_V1_1` renders 1080×1920 original dark cards with high-contrast Cyrillic text, a modest
+accent, source label, logical-scene counter, time-based progress, and generous margins. The
+canonical script retains 5 logical scenes while the presentation contains 9–16 timed visual cards.
+Every visual card carries an exact narration fragment as its dominant burned-in caption, and no
+unchanged visual hold may exceed 7 seconds. It uses Segoe UI, Arial, or another installed
+Cyrillic-capable system font; font files are never committed. The first `TEXT_CARD_V1` pilot
+artifact remains preserved as historical evidence.
 
 Wrapping is deterministic and bounded. Content that cannot fit fails explicitly. The renderer
-creates `cover.png` and `scene-01.png` through `scene-N.png`; no third-party visual asset is used.
+creates `cover.png` and `card-001.png` through `card-NNN.png`; no third-party visual asset is used.
 
 FFmpeg comes from `imageio_ffmpeg.get_ffmpeg_exe()` and is invoked with subprocess argument lists,
-never shell interpolation. A temporary FFconcat file names only generated local scene files.
-Durations follow TTS timing when available and otherwise use proportional narration length.
+never shell interpolation. A temporary FFconcat file names only generated local card files.
+Durations follow validated SRT timing.
 
-MP4 is H.264/AAC, `yuv420p`, 1080×1920, 30 fps, `-shortest`, and fast-start enabled. The preferred
-first-pilot duration is 35–65 seconds; 25–85 seconds is accepted for the approved 94-word script.
+MP4 is H.264/AAC, `yuv420p`, 1080×1920, 30 fps, `-shortest`, and fast-start enabled. Final encoded
+audio is normalized near `-16 LUFS` with a true peak at or below `-1.0 dBTP`. The polished duration
+bound is 38–55 seconds, including the validated original-voice fallback.
 
 ## 10. Manifest and verification
 
@@ -121,7 +127,8 @@ rate, measured duration, creation time, manual approval, artifact paths, and SHA
 Operational creation time does not affect package or script identity.
 
 After encoding, FFmpeg must decode the output and confirm non-empty video and audio streams,
-1080×1920 dimensions, and an accepted duration. Render success is reported only after verification.
+1080×1920 dimensions, accepted duration and loudness, and fast-start layout. Render success is
+reported only after verification. Manual publication approval remains mandatory.
 
 ## 11. Tests and delivery
 

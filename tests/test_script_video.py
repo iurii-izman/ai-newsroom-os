@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import struct
+import subprocess
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,9 +16,16 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
+import ai_newsroom.video_renderer as video_renderer
 from ai_newsroom.cli import app
 from ai_newsroom.database import harvest_snapshots, init_database, load_story_source
-from ai_newsroom.models import EVIDENCE_LIMITATION, BuildGenerator, F0Error, RealStoryPackagePayload
+from ai_newsroom.models import (
+    EVIDENCE_LIMITATION,
+    BuildGenerator,
+    F0Error,
+    RealStoryPackagePayload,
+    SourceReference,
+)
 from ai_newsroom.normalization import story_id
 from ai_newsroom.package_builder import build_package, load_validated_package
 from ai_newsroom.rss import parse_live_feed_bytes
@@ -27,9 +36,17 @@ from ai_newsroom.script_builder import (
     expected_script_identity,
     load_script,
 )
-from ai_newsroom.script_models import ProductionScript, ScriptScene
+from ai_newsroom.script_models import ProductionScript, ScriptScene, count_spoken_words
 from ai_newsroom.tts import choose_russian_voice, synthesize_tts
-from ai_newsroom.video_renderer import assemble_video, find_cyrillic_font, render_scene_card
+from ai_newsroom.video_renderer import (
+    VideoInfo,
+    assemble_video,
+    build_timed_cards,
+    find_cyrillic_font,
+    render_scene_card,
+    render_video,
+    validate_cover_text,
+)
 
 NOW = "2026-07-14T12:00:00Z"
 SECRET = "test-key"
@@ -406,7 +423,7 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
     assert calls[0][0] == spoken_text
     assert calls[0][1] == voice
     assert calls[0][2] == {
-        "rate": "+5%",
+        "rate": "+12%",
         "volume": "+0%",
         "pitch": "+0Hz",
         "boundary": "SentenceBoundary",
@@ -416,3 +433,218 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
     assert "Первая фраза." in subtitle_text
     assert "Вторая фраза." in subtitle_text
     assert "00:00:01,000 --> 00:00:01,950" in subtitle_text
+
+
+def _timed_card_script() -> ProductionScript:
+    scene_texts = [
+        f"Сцена {index} сообщает только проверенный текст и сохраняет точную последовательность "
+        "всех русских слов для карточки сейчас без каких-либо изменений."
+        for index in range(1, 6)
+    ]
+    spoken_text = " ".join(scene_texts)
+    return ProductionScript(
+        schema_version=1,
+        script_id="script_" + "a" * 24,
+        story_id="story_" + "b" * 24,
+        package_id="pkg_" + "c" * 24,
+        input_fingerprint="d" * 64,
+        generator="safe-local-v1",
+        template_version="claim-safe-script-v1",
+        language="ru",
+        target_duration_seconds=45,
+        working_title="Проверенный заголовок",
+        hook=scene_texts[0],
+        spoken_text=spoken_text,
+        word_count=count_spoken_words(spoken_text),
+        scenes=[
+            ScriptScene(
+                order=index,
+                narration=text,
+                on_screen_text=f"Раздел {index}",
+                source_label="Источник: example.com",
+                claim_ids=[],
+                visual_kind="TEXT_CARD",
+            )
+            for index, text in enumerate(scene_texts, start=1)
+        ],
+        source_references=[
+            SourceReference(
+                source_id="src_" + "e" * 24,
+                canonical_url="https://example.com/source",
+            )
+        ],
+        limitations=["Тестовое ограничение."],
+        caption="Тестовая подпись.",
+        manual_approval_required=True,
+    )
+
+
+def _write_scene_srt(path: Path, script: ProductionScript) -> None:
+    blocks = []
+    for index, scene in enumerate(script.scenes, start=1):
+        start = (index - 1) * 9
+        end = index * 9
+        blocks.append(
+            f"{index}\n00:00:{start:02d},000 --> 00:00:{end:02d},000\n{scene.narration}\n"
+        )
+    path.write_text("\n".join(blocks), encoding="utf-8")
+
+
+def test_timed_caption_segmentation_preserves_narration_and_scene_metadata(
+    tmp_path: Path,
+) -> None:
+    script = _timed_card_script()
+    subtitles = tmp_path / "subtitles.srt"
+    _write_scene_srt(subtitles, script)
+
+    cards = build_timed_cards(script, subtitles, 45.0)
+
+    assert 9 <= len(cards) <= 16
+    assert len(cards) > len(script.scenes)
+    assert " ".join(card.narration_text for card in cards) == script.spoken_text
+    assert max(card.duration_seconds for card in cards) <= 6.5
+    assert min(card.duration_seconds for card in cards[:-1]) >= 1.5
+    for card in cards:
+        scene = script.scenes[card.scene_order - 1]
+        assert card.section_label == scene.on_screen_text
+        assert card.source_label == scene.source_label
+        assert card.narration_text in scene.narration
+
+
+@pytest.mark.parametrize(
+    ("value", "maximum"),
+    [("строка\nс переносом", 120), ("д" * 121, 120), ("\x00", 80)],
+)
+def test_cover_override_validation_rejects_controls_and_excessive_length(
+    value: str, maximum: int
+) -> None:
+    with pytest.raises(F0Error) as error:
+        validate_cover_text(value, name="cover", maximum=maximum)
+    assert error.value.code == "E_VIDEO_COVER"
+
+
+def test_ffmpeg_invocation_is_argument_based_and_normalizes_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = tmp_path / "card-001.png"
+    Image.new("RGB", (16, 16)).save(card)
+    audio = tmp_path / "audio.wav"
+    _write_wav(audio)
+    output = tmp_path / "video.mp4"
+    calls: list[list[str]] = []
+    original_run_ffmpeg = video_renderer._run_ffmpeg
+
+    def fake_ffmpeg(arguments: list[str], *, cwd: Path | None = None) -> Any:
+        calls.append(arguments)
+        output.write_bytes(b"video")
+        analysis = """
+        {"input_i":"-20.0","input_tp":"-4.0","input_lra":"2.0",
+         "input_thresh":"-30.0","target_offset":"0.0"}
+        """
+        return SimpleNamespace(returncode=0, stderr=analysis, stdout="")
+
+    monkeypatch.setattr(video_renderer, "_run_ffmpeg", fake_ffmpeg)
+    monkeypatch.setattr(
+        video_renderer,
+        "verify_video",
+        lambda *_args, **_kwargs: VideoInfo(16, 16, 1.2, True, True),
+    )
+    assemble_video(
+        [card],
+        [1.2],
+        audio,
+        output,
+        expected_dimensions=(16, 16),
+        duration_bounds=None,
+    )
+    assert any(any("loudnorm=I=-16:TP=-4:LRA=11" in item for item in call) for call in calls)
+
+    subprocess_kwargs: dict[str, Any] = {}
+
+    def fake_run(arguments: list[str], **kwargs: Any) -> Any:
+        subprocess_kwargs.update(kwargs)
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(video_renderer, "_run_ffmpeg", original_run_ffmpeg)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    video_renderer._run_ffmpeg(["ffmpeg", "-version"])
+    assert subprocess_kwargs["shell"] is False
+
+
+def test_polished_manifest_preserves_lineage_hashes_and_protects_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _timed_card_script()
+    script_path = tmp_path / f"{script.script_id}.json"
+    script_path.write_text(
+        json.dumps(script.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    protected = tmp_path / "video-final"
+    protected.mkdir()
+    marker = protected / "marker.bin"
+    marker.write_bytes(b"preserve")
+    monkeypatch.setattr(video_renderer, "load_script", lambda _path: script)
+
+    with pytest.raises(F0Error) as error:
+        render_video(script_path, output_dir=protected)
+    assert error.value.code == "E_VIDEO_OUTPUT"
+    assert marker.read_bytes() == b"preserve"
+
+    def fake_tts(text: str, audio: Path, subtitles: Path, requested_voice: str | None) -> str:
+        assert text == script.spoken_text
+        audio.write_bytes(b"audio")
+        _write_scene_srt(subtitles, script)
+        return "ru-RU-DmitryNeural"
+
+    def fake_cover(_script: ProductionScript, path: Path, **_kwargs: Any) -> None:
+        path.write_bytes(b"cover")
+
+    def fake_card(_card: Any, path: Path, **_kwargs: Any) -> None:
+        path.write_bytes(b"card")
+
+    def fake_assemble(
+        _cards: list[Path],
+        _durations: list[float],
+        _audio: Path,
+        output: Path,
+        **_kwargs: Any,
+    ) -> VideoInfo:
+        output.write_bytes(b"video")
+        return VideoInfo(
+            1080,
+            1920,
+            45.0,
+            True,
+            True,
+            integrated_loudness=-16.0,
+            true_peak=-1.5,
+        )
+
+    monkeypatch.setattr(video_renderer, "synthesize_tts", fake_tts)
+    monkeypatch.setattr(video_renderer, "media_duration", lambda _path: 45.0)
+    monkeypatch.setattr(video_renderer, "find_cyrillic_font", lambda: Path("font.ttf"))
+    monkeypatch.setattr(video_renderer, "render_cover", fake_cover)
+    monkeypatch.setattr(video_renderer, "render_timed_card", fake_card)
+    monkeypatch.setattr(video_renderer, "assemble_video", fake_assemble)
+
+    output_dir = tmp_path / "video-polished"
+    rendered, info, voice = render_video(
+        script_path,
+        output_dir=output_dir,
+        cover_title="Безопасный заголовок",
+        cover_kicker="Заявление источника",
+    )
+    manifest = json.loads((rendered / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["template"] == "TEXT_CARD_V1_1"
+    assert manifest["script_id"] == script.script_id
+    assert manifest["package_id"] == script.package_id
+    assert manifest["story_id"] == script.story_id
+    assert manifest["manual_approval_required"] is True
+    assert manifest["visual_card_count"] == info.visual_card_count == 10
+    assert voice == "ru-RU-DmitryNeural"
+    assert set(manifest["artifacts"]) == set(manifest["artifact_sha256"])
+    for name, digest in manifest["artifact_sha256"].items():
+        assert hashlib.sha256((rendered / name).read_bytes()).hexdigest() == digest
+    assert marker.read_bytes() == b"preserve"

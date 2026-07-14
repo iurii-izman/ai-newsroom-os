@@ -62,10 +62,11 @@ retention. Automated tests remain entirely network-free.
 `script build` accepts only a validated stored DeepSeek package and deterministically exports an
 editable canonical JSON/Markdown pair with `safe-local-v1`; no script provider is called. Allowed
 claims, qualifications, limitations, sources, counts, and identity are finalized locally.
-`video render` validates that JSON,
-queries the current Edge Russian voice list,
-sends only `spoken_text` to Edge TTS, and creates local ignored MP3, SRT, text-card PNG, MP4, and
-manifest artifacts. Every script and video remains subject to manual approval before publication.
+`video render` validates that JSON, queries the current Edge Russian voice list, sends only
+`spoken_text` to Edge TTS, and creates local ignored MP3, SRT, narration-bearing timed-card PNG,
+normalized-audio MP4, and manifest artifacts. Optional `--cover-title` and `--cover-kicker`
+presentation overrides do not modify the canonical script. Every script and video remains subject
+to manual approval before publication.
 
 ## Target environment
 
