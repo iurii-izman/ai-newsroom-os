@@ -24,6 +24,8 @@ WIDTH: Final = 1080
 HEIGHT: Final = 1920
 FRAME_RATE: Final = 30
 TEMPLATE: Final = "TEXT_CARD_V1"
+MIN_PILOT_DURATION: Final = 25
+MAX_PILOT_DURATION: Final = 85
 BACKGROUND: Final = "#111318"
 FOREGROUND: Final = "#F4F6F8"
 SECONDARY: Final = "#AAB2BE"
@@ -369,7 +371,7 @@ def render_video(
             scene_paths.append(scene_path)
 
         audio_seconds = media_duration(audio_path)
-        if not 40 <= audio_seconds <= 85:
+        if not MIN_PILOT_DURATION <= audio_seconds <= MAX_PILOT_DURATION:
             raise F0Error("E_VIDEO_RENDER", "TTS duration is outside the accepted pilot bound")
         weights = [max(1, count_spoken_words(scene.narration)) for scene in script.scenes]
         total_weight = sum(weights)
@@ -381,7 +383,7 @@ def render_video(
             audio_path,
             video_path,
             expected_dimensions=(WIDTH, HEIGHT),
-            duration_bounds=(40, 85),
+            duration_bounds=(MIN_PILOT_DURATION, MAX_PILOT_DURATION),
         )
 
         artifact_paths = [audio_path, subtitles_path, cover_path, *scene_paths, video_path]

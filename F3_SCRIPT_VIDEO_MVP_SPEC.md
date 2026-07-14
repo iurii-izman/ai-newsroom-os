@@ -111,8 +111,8 @@ FFmpeg comes from `imageio_ffmpeg.get_ffmpeg_exe()` and is invoked with subproce
 never shell interpolation. A temporary FFconcat file names only generated local scene files.
 Durations follow TTS timing when available and otherwise use proportional narration length.
 
-MP4 is H.264/AAC, `yuv420p`, 1080×1920, 30 fps, `-shortest`, and fast-start enabled. Expected pilot
-duration is 45–75 seconds; 40–85 seconds is accepted for the first real pilot.
+MP4 is H.264/AAC, `yuv420p`, 1080×1920, 30 fps, `-shortest`, and fast-start enabled. The preferred
+first-pilot duration is 35–65 seconds; 25–85 seconds is accepted for the approved 94-word script.
 
 ## 10. Manifest and verification
 

@@ -356,7 +356,13 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
                 "type": "SentenceBoundary",
                 "offset": 0,
                 "duration": 10_000_000,
-                "text": "Только narration.",
+                "text": "Первая фраза.",
+            }
+            yield {
+                "type": "SentenceBoundary",
+                "offset": 9_500_000,
+                "duration": 10_000_000,
+                "text": "Вторая фраза.",
             }
 
     monkeypatch.setattr(edge_tts, "VoicesManager", FakeManager)
@@ -372,9 +378,10 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
     monkeypatch.setattr(asyncio, "run", run_immediate)
     audio = tmp_path / "voice.mp3"
     subtitles = tmp_path / "subtitles.srt"
-    voice = synthesize_tts("Только narration.", audio, subtitles)
+    spoken_text = "Первая фраза. Вторая фраза."
+    voice = synthesize_tts(spoken_text, audio, subtitles)
     assert voice == "ru-RU-DmitryNeural"
-    assert calls[0][0] == "Только narration."
+    assert calls[0][0] == spoken_text
     assert calls[0][1] == voice
     assert calls[0][2] == {
         "rate": "+5%",
@@ -383,4 +390,7 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
         "boundary": "SentenceBoundary",
     }
     assert audio.read_bytes() == b"fake-mp3"
-    assert "Только narration." in subtitles.read_text(encoding="utf-8-sig")
+    subtitle_text = subtitles.read_text(encoding="utf-8-sig")
+    assert "Первая фраза." in subtitle_text
+    assert "Вторая фраза." in subtitle_text
+    assert "00:00:01,000 --> 00:00:01,950" in subtitle_text
