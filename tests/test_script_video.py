@@ -208,6 +208,42 @@ def test_valid_script_filters_unverified_and_reuses_stable_pair(tmp_path: Path) 
     assert (json_path.read_bytes(), markdown_path.read_bytes()) == original
 
 
+def test_script_build_cli_composes_real_package_offline_and_reuses_pair(tmp_path: Path) -> None:
+    selected_story, package_id, package = prepare_real_package(tmp_path)
+    expected_fingerprint, expected_script_id = expected_script_identity(package)
+    command = [
+        "--data-dir",
+        str(tmp_path),
+        "script",
+        "build",
+        selected_story,
+        "--package-id",
+        package_id,
+    ]
+
+    built = runner.invoke(app, command)
+    assert built.exit_code == 0
+    assert f"script_id={expected_script_id} created" in built.stdout
+    assert "provider_called" not in built.stdout
+
+    script_dir = tmp_path / "scripts" / selected_story
+    (json_path,) = script_dir.glob("script_*.json")
+    (markdown_path,) = script_dir.glob("script_*.md")
+    script = ProductionScript.model_validate_json(json_path.read_bytes())
+    assert script.script_id == expected_script_id
+    assert script.input_fingerprint == expected_fingerprint
+    assert script.story_id == selected_story
+    assert script.package_id == package_id
+    assert script.source_references == package.source_references
+    assert script.limitations == package.limitations
+    original = (json_path.read_bytes(), markdown_path.read_bytes())
+
+    repeated = runner.invoke(app, command)
+    assert repeated.exit_code == 0
+    assert f"script_id={script.script_id} unchanged" in repeated.stdout
+    assert (json_path.read_bytes(), markdown_path.read_bytes()) == original
+
+
 def test_script_rejects_package_without_allowed_claims(tmp_path: Path) -> None:
     selected_story, package_id, _package = prepare_real_package(tmp_path, allow_claims=False)
     with pytest.raises(F0Error) as error:
