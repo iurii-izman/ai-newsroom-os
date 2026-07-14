@@ -64,13 +64,14 @@ seconds. The strict model includes script/story/package identity, input fingerpr
 prompt metadata, title, hook, spoken text, word count, 5–8 scenes, 1–3 inherited source references,
 limitations, caption, and approval flag.
 
-Every scene has sequential order, narration, short on-screen text, source label, and
-`visual_kind=TEXT_CARD`. Spoken text is exactly the ordered scene narration, the first narration is
-the hook, and Russian word count is 110–170. The final scene states a concrete takeaway.
+DeepSeek returns only working title, hook, caption, and 5–8 scenes containing narration,
+short on-screen text, and allowed package claim IDs. Local code validates claim eligibility,
+assigns order, source label, and `visual_kind=TEXT_CARD`, joins spoken text, and calculates the
+110–170 word count. The first narration is the hook and the final scene states a concrete takeaway.
 
 The fingerprint covers the canonical validated package JSON digest, package ID, fixed DeepSeek
 model/settings, script prompt version/digest, and script schema version. `script_id` is derived from
-that fingerprint. Prompt version is `short-video-script-v1` and its tracked bytes have a fixed
+that fingerprint. Prompt version is `short-video-script-v2` and its tracked bytes have a fixed
 SHA-256 digest.
 
 Before provider access the builder checks for the deterministic JSON/Markdown pair and reuses a

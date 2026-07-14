@@ -57,7 +57,9 @@ licensed internal content. Provider-side context caching may occur; the system d
 retention. Automated tests remain entirely network-free.
 
 `script build` accepts only a validated stored DeepSeek package and exports an editable canonical
-JSON/Markdown pair. `video render` validates that JSON, queries the current Edge Russian voice list,
+JSON/Markdown pair. Script prompt v2 asks DeepSeek only for editorial text and claim IDs; lineage,
+counts, sources, and generator metadata are finalized locally. `video render` validates that JSON,
+queries the current Edge Russian voice list,
 sends only `spoken_text` to Edge TTS, and creates local ignored MP3, SRT, text-card PNG, MP4, and
 manifest artifacts. Every script and video remains subject to manual approval before publication.
 

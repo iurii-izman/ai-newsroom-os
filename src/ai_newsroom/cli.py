@@ -194,16 +194,21 @@ def script_build(
     output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
 ) -> None:
     try:
-        script, created, json_path, markdown_path = build_script(
+        script, created, json_path, markdown_path, repair_used = build_script(
             ctx.obj["data_dir"],
             story_id,
             package_id,
             output_dir=output_dir,
             api_key=os.environ.get("DEEPSEEK_API_KEY"),
         )
+        provider_status = (
+            "provider_called=false"
+            if repair_used is None
+            else f"repair_used={str(repair_used).lower()}"
+        )
         typer.echo(
             f"script_id={script.script_id} {'created' if created else 'unchanged'} "
-            f"json={json_path} markdown={markdown_path}"
+            f"{provider_status} json={json_path} markdown={markdown_path}"
         )
     except F0Error as error:
         _fail(error)

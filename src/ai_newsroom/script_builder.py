@@ -6,6 +6,7 @@ import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -13,11 +14,16 @@ from ai_newsroom.deepseek import MODEL, create_client, request_completion
 from ai_newsroom.models import F0Error, RealStoryPackagePayload
 from ai_newsroom.normalization import canonical_json
 from ai_newsroom.package_builder import load_validated_package
-from ai_newsroom.script_models import ProductionScript, ProviderScriptDraft
+from ai_newsroom.script_models import (
+    ProductionScript,
+    ProviderScriptDraft,
+    ScriptScene,
+    count_spoken_words,
+)
 
-PROMPT_VERSION: Final = "short-video-script-v1"
-PROMPT_SHA256: Final = "8d31bff7ad6cd9b70c027518dc2c90ef1506ce3c970c5018a8508053ed488d83"
-PROMPT_PATH: Final = Path(__file__).resolve().parents[2] / "prompts" / "short_video_script_v1.txt"
+PROMPT_VERSION: Final = "short-video-script-v2"
+PROMPT_SHA256: Final = "8e758f3b7d96e8292d7649152b5e23ce728db6de6736486799879ba0f389288d"
+PROMPT_PATH: Final = Path(__file__).resolve().parents[2] / "prompts" / "short_video_script_v2.txt"
 SCRIPT_SCHEMA_VERSION: Final = 1
 NEEDS_TEST_NOTICE: Final = (
     "В отдельном практическом тесте это пока не проверено."  # noqa: RUF001
@@ -133,14 +139,9 @@ def _allowed_request(package: RealStoryPackagePayload) -> dict[str, Any]:
     if not allowed_claims:
         raise F0Error("E_SCRIPT_PACKAGE", "package has no claims approved for script use")
     return {
-        "story_id": package.story_id,
-        "package_id": package.package_id,
         "publication_verdict": package.publication_verdict,
         "allowed_claims": allowed_claims,
         "limitations": package.limitations,
-        "source_references": [
-            reference.model_dump(mode="json") for reference in package.source_references
-        ],
     }
 
 
@@ -209,9 +210,43 @@ def _finalize_script(
     fingerprint: str,
     script_id: str,
 ) -> ProductionScript:
+    claims = {claim.claim_id: claim for claim in package.claims}
+    reference_hosts = {
+        reference.source_id: urlsplit(reference.canonical_url).hostname or reference.source_id
+        for reference in package.source_references
+    }
+    scenes: list[ScriptScene] = []
+    for order, provider_scene in enumerate(draft.scenes, start=1):
+        source_hosts: list[str] = []
+        for claim_id in provider_scene.claim_ids:
+            claim = claims.get(claim_id)
+            if claim is None:
+                raise F0Error("E_SCRIPT_OUTPUT", "provider draft references an unknown claim")
+            if not claim.use_in_script or claim.status == "UNVERIFIED":
+                raise F0Error("E_SCRIPT_OUTPUT", "provider draft references a forbidden claim")
+            host = reference_hosts.get(claim.evidence_source_id)
+            if host is None:
+                raise F0Error("E_SCRIPT_OUTPUT", "claim source reference is missing")
+            if host not in source_hosts:
+                source_hosts.append(host)
+        source_label = "Источник: " + ", ".join(source_hosts)
+        if len(source_label) > 100:
+            raise F0Error("E_SCRIPT_OUTPUT", "derived scene source label is too long")
+        scenes.append(
+            ScriptScene(
+                order=order,
+                narration=provider_scene.narration,
+                on_screen_text=provider_scene.on_screen_text,
+                source_label=source_label,
+                visual_kind="TEXT_CARD",
+            )
+        )
+    spoken_text = " ".join(scene.narration for scene in scenes)
+    word_count = count_spoken_words(spoken_text)
+    if not 110 <= word_count <= 170:
+        raise F0Error("E_SCRIPT_OUTPUT", "script narration must contain 110 to 170 words")
     script = ProductionScript.model_validate(
         {
-            **draft.model_dump(mode="json"),
             "schema_version": 1,
             "script_id": script_id,
             "story_id": package.story_id,
@@ -226,6 +261,17 @@ def _finalize_script(
             },
             "prompt_version": PROMPT_VERSION,
             "language": "ru",
+            "target_duration_seconds": 60,
+            "working_title": draft.working_title,
+            "hook": draft.hook,
+            "spoken_text": spoken_text,
+            "word_count": word_count,
+            "scenes": [scene.model_dump(mode="json") for scene in scenes],
+            "source_references": [
+                reference.model_dump(mode="json") for reference in package.source_references
+            ],
+            "limitations": package.limitations,
+            "caption": draft.caption,
             "manual_approval_required": True,
         }
     )
@@ -292,7 +338,7 @@ def build_script(
     output_dir: Path | None = None,
     api_key: str | None,
     client: Any | None = None,
-) -> tuple[ProductionScript, bool, Path, Path]:
+) -> tuple[ProductionScript, bool, Path, Path, bool | None]:
     _snapshot, loaded = load_validated_package(data_dir, story_id, package_id=package_id)
     if not isinstance(loaded, RealStoryPackagePayload):
         raise F0Error("E_SCRIPT_PACKAGE", "mock packages cannot generate a production script")
@@ -306,7 +352,7 @@ def build_script(
     markdown_path = selected_dir / f"{script_id}.md"
     existing = _load_existing_pair(json_path, markdown_path, package)
     if existing is not None:
-        return existing, False, json_path, markdown_path
+        return existing, False, json_path, markdown_path, None
     if api_key is None or not api_key.strip():
         raise F0Error("E_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY is required to build a script")
 
@@ -314,13 +360,16 @@ def build_script(
     prompt = load_runtime_script_prompt()
     validation_error = ""
     script: ProductionScript | None = None
+    repair_used = False
     for attempt in range(2):
         user_value = request_value
         if attempt == 1:
             user_value = {
                 **request_value,
                 "repair": {
-                    "instruction": "Исправь схему и верни только полный JSON-объект.",
+                    "instruction": (
+                        "Верни полный исправленный JSON-объект на замену, без пояснений."
+                    ),
                     "validation_errors": validation_error,
                 },
             }
@@ -336,6 +385,7 @@ def build_script(
             script = _finalize_script(
                 draft, package, fingerprint=fingerprint, script_id=script_id
             )
+            repair_used = attempt == 1
             break
         except (ValidationError, F0Error) as error:
             if isinstance(error, F0Error) and error.code != "E_SCRIPT_OUTPUT":
@@ -347,7 +397,7 @@ def build_script(
                 ) from None
     assert script is not None
     _write_pair(json_path, markdown_path, script)
-    return script, True, json_path, markdown_path
+    return script, True, json_path, markdown_path, repair_used
 
 
 def load_script(path: Path) -> ProductionScript:
