@@ -14,16 +14,22 @@ from ai_newsroom.live_sources import SOURCE_NAMES, fetch_feed, load_live_sources
 from ai_newsroom.models import BuildGenerator, F0Error, RealStoryPackagePayload
 from ai_newsroom.package_builder import build_package, load_validated_package
 from ai_newsroom.rss import parse_live_feed_bytes, read_rss_fixture
+from ai_newsroom.script_builder import build_script
+from ai_newsroom.video_renderer import render_video
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 db_app = typer.Typer(no_args_is_help=True)
 harvest_app = typer.Typer(no_args_is_help=True)
 stories_app = typer.Typer(no_args_is_help=True)
 package_app = typer.Typer(no_args_is_help=True)
+script_app = typer.Typer(no_args_is_help=True)
+video_app = typer.Typer(no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(harvest_app, name="harvest")
 app.add_typer(stories_app, name="stories")
 app.add_typer(package_app, name="package")
+app.add_typer(script_app, name="script")
+app.add_typer(video_app, name="video")
 
 
 class LiveSourceSelection(StrEnum):
@@ -174,6 +180,51 @@ def package_export(
             package_id=package_id,
         )
         typer.echo(f"exported={replaced} unchanged={unchanged}")
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+@script_app.command("build")
+def script_build(
+    ctx: typer.Context,
+    story_id: str,
+    package_id: Annotated[str, typer.Option("--package-id")],
+    output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
+) -> None:
+    try:
+        script, created, json_path, markdown_path = build_script(
+            ctx.obj["data_dir"],
+            story_id,
+            package_id,
+            output_dir=output_dir,
+            api_key=os.environ.get("DEEPSEEK_API_KEY"),
+        )
+        typer.echo(
+            f"script_id={script.script_id} {'created' if created else 'unchanged'} "
+            f"json={json_path} markdown={markdown_path}"
+        )
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+@video_app.command("render")
+def video_render(
+    script_json: Path,
+    output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
+    voice: Annotated[str | None, typer.Option("--voice")] = None,
+) -> None:
+    try:
+        rendered, info, selected_voice = render_video(
+            script_json, output_dir=output_dir, requested_voice=voice
+        )
+        typer.echo(
+            f"video={rendered / 'video.mp4'} voice={selected_voice} "
+            f"dimensions={info.width}x{info.height} duration={info.duration_seconds:.3f}s"
+        )
     except F0Error as error:
         _fail(error)
     except Exception:
