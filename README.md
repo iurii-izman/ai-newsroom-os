@@ -1,39 +1,47 @@
 # AI Newsroom OS
 
-AI Newsroom OS is a proof-first automation system for a Russian-speaking AI newsroom. It is intended to preserve traceable relationships between sources, claims, editorial conclusions, and practical applications while avoiding unverified, low-value AI summaries.
+AI Newsroom OS is a proof-first automation system for a Russian-speaking AI newsroom. It preserves
+traceable relationships between sources, claims, editorial conclusions, and practical applications
+without treating vendor feed content as independently verified truth.
 
-**Status:** Foundation F0 ready for implementation.
-
-Implementation has not started. This repository currently contains the owner-reviewed foundation, project governance, and Codex tooling instructions only.
+**Status:** F1/F2 DeepSeek vertical MVP implemented. Foundation F0 behavior remains supported.
 
 ## Document authority
 
-1. [`F0_TECHNICAL_SPEC.md`](F0_TECHNICAL_SPEC.md) is the sole normative F0 specification.
-2. [`docs/f0-minimal-scope.md`](docs/f0-minimal-scope.md) is a derived, non-normative checklist.
+1. [`F0_TECHNICAL_SPEC.md`](F0_TECHNICAL_SPEC.md) remains the sole normative specification for F0.
+2. [`F1_F2_VERTICAL_MVP_SPEC.md`](F1_F2_VERTICAL_MVP_SPEC.md) governs only the live-ingestion and
+   DeepSeek vertical slice.
 3. [`PROJECT_VISION.md`](PROJECT_VISION.md) is non-normative product context.
-4. [`docs/open-decisions.md`](docs/open-decisions.md) records future owner decisions.
-5. [`docs/f0-risk-register.md`](docs/f0-risk-register.md) records operational risks.
-6. Foundation, vNext, audit, and related prompt files are historical context.
 
-If documents conflict, `F0_TECHNICAL_SPEC.md` wins for F0.
+## Commands
 
-## Current phase boundaries
+Existing F0 commands remain valid. The vertical slice adds:
 
-The next phase is Foundation F0: an offline, deterministic local RSS-fixture-to-SQLite-to-mock-package vertical slice. F0 does not include live ingestion, clustering or multi-source merge, a real LLM provider, UI or API, Docker, TTS, video, publishing, or future placeholder abstractions. The independent manual content-validation track may proceed without F0 software.
+```powershell
+uv run ai-newsroom --data-dir data harvest live --source openai-news --limit 20
+uv run ai-newsroom --data-dir data harvest live --source all --limit 5
+uv run ai-newsroom --data-dir data package build STORY_ID --generator deepseek
+uv run ai-newsroom --data-dir data package export STORY_ID --format all --package-id PACKAGE_ID
+```
+
+`harvest live` accepts only the three tracked first-party sources. The default package generator is
+still `mock`, so the old F0 invocation remains unchanged.
+
+## DeepSeek provider boundary
+
+The concrete provider is DeepSeek at `https://api.deepseek.com/chat/completions`, using
+`deepseek-v4-flash`, JSON Output, temperature `0.2`, disabled thinking, no tools, no streaming, and
+at most one schema-repair request. Set only `DEEPSEEK_API_KEY` in the current process environment.
+
+Only public, bounded, feed-derived content for the selected Story may be sent: title, excerpt,
+canonical URL, dates, vendor name, source ID, and Story ID. Do not use this slice for private or
+licensed internal content. Provider-side context caching may occur; the system does not claim zero
+retention. Automated tests remain entirely network-free.
 
 ## Target environment
 
-- Windows 11
-- Python 3.12.x
-- Ryzen 3 5300U
-- 16 GB RAM
-- No GPU requirement
-- No Docker
+- Windows 11 and Python 3.12.x
+- `uv`, 16 GB RAM, CPU-only
+- no Docker or GPU requirement
 
-## Repository governance
-
-Root Codex instructions define authority, scope, dependency limits, the working method, safety rules, and stop conditions. Project Codex settings keep runtime work offline and workspace-scoped. Repo-local skills provide explicit-only F0 scope review and quality-gate workflows. Git hygiene excludes secrets, runtime data, generated exports, caches, and build artifacts.
-
-## Next step
-
-Implement F0 from [`F0_TECHNICAL_SPEC.md`](F0_TECHNICAL_SPEC.md) in a feature branch.
+The manual content-validation track continues independently of this technical slice.

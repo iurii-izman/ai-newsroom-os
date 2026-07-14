@@ -1,9 +1,10 @@
 [project]
 name = "ai-newsroom"
 version = "0.1.0"
-description = "Deterministic offline Foundation F0 for AI Newsroom OS"
+description = "Proof-first F1/F2 vertical MVP for AI Newsroom OS"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "openai>=2,<3",
     "pydantic>=2.12,<3",
     "typer>=0.20,<1",
 ]
