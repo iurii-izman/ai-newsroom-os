@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import math
 import struct
@@ -18,17 +17,17 @@ from typer.testing import CliRunner
 from ai_newsroom.cli import app
 from ai_newsroom.database import harvest_snapshots, init_database, load_story_source
 from ai_newsroom.models import EVIDENCE_LIMITATION, BuildGenerator, F0Error, RealStoryPackagePayload
-from ai_newsroom.normalization import canonical_json, story_id
+from ai_newsroom.normalization import story_id
 from ai_newsroom.package_builder import build_package, load_validated_package
 from ai_newsroom.rss import parse_live_feed_bytes
 from ai_newsroom.script_builder import (
-    PROMPT_SHA256,
-    PROMPT_VERSION,
+    GENERATOR_VERSION,
+    TEMPLATE_VERSION,
     build_script,
     expected_script_identity,
     load_script,
 )
-from ai_newsroom.script_models import ProductionScript, ProviderScriptDraft, ScriptScene
+from ai_newsroom.script_models import ProductionScript, ScriptScene
 from ai_newsroom.tts import choose_russian_voice, synthesize_tts
 from ai_newsroom.video_renderer import assemble_video, find_cyrillic_font, render_scene_card
 
@@ -76,7 +75,9 @@ def prepare_story(data_dir: Path) -> str:
     return story_id(snapshot.id)
 
 
-def package_draft(data_dir: Path, selected_story: str, verdict: str) -> dict[str, Any]:
+def package_draft(
+    data_dir: Path, selected_story: str, verdict: str, *, allow_claims: bool = True
+) -> dict[str, Any]:
     _story, source = load_story_source(data_dir, selected_story)
     return {
         "story_id": selected_story,
@@ -93,7 +94,7 @@ def package_draft(data_dir: Path, selected_story: str, verdict: str) -> dict[str
                 "status": "VENDOR_CLAIM",
                 "confidence": "MEDIUM",
                 "evidence_source_id": source.id,
-                "use_in_script": True,
+                "use_in_script": allow_claims,
                 "qualification": "По данным официальной ленты поставщика.",
             },
             {
@@ -105,6 +106,15 @@ def package_draft(data_dir: Path, selected_story: str, verdict: str) -> dict[str
                 "use_in_script": False,
                 "qualification": "Нет подтверждения.",
             },
+            {
+                "claim_id": "claim_verified",
+                "text": "В официальной ленте опубликован анонс новой AI-функции.",
+                "status": "VERIFIED",
+                "confidence": "HIGH",
+                "evidence_source_id": source.id,
+                "use_in_script": allow_claims,
+                "qualification": ("Подтверждено только фактом публикации в указанной ленте."),
+            },
         ],
         "limitations": [EVIDENCE_LIMITATION],
         "demonstration_plan": ["Проверить функцию отдельно."],
@@ -114,11 +124,14 @@ def package_draft(data_dir: Path, selected_story: str, verdict: str) -> dict[str
 
 
 def prepare_real_package(
-    data_dir: Path, verdict: str = "READY_WITH_QUALIFICATION"
+    data_dir: Path,
+    verdict: str = "READY_WITH_QUALIFICATION",
+    *,
+    allow_claims: bool = True,
 ) -> tuple[str, str, RealStoryPackagePayload]:
     selected_story = prepare_story(data_dir)
     package_client = FakeClient(
-        [completion(package_draft(data_dir, selected_story, verdict))]
+        [completion(package_draft(data_dir, selected_story, verdict, allow_claims=allow_claims))]
     )
     package_id, _created = build_package(
         data_dir,
@@ -128,57 +141,9 @@ def prepare_real_package(
         api_key=SECRET,
         client=package_client,
     )
-    _snapshot, package = load_validated_package(
-        data_dir, selected_story, package_id=package_id
-    )
+    _snapshot, package = load_validated_package(data_dir, selected_story, package_id=package_id)
     assert isinstance(package, RealStoryPackagePayload)
     return selected_story, package_id, package
-
-
-def valid_script_draft(_package: RealStoryPackagePayload) -> dict[str, Any]:
-    seed = [
-        "По",
-        "данным",
-        "официальной",
-        "ленты",
-        "поставщика.",
-        "Новая",
-        "функция",
-        "относится",
-        "к",
-        "рабочим",
-        "процессам",
-        "специалистов",
-        "и",
-        "требует",
-        "внимательной",
-        "ручной",
-        "оценки",
-        "перед",
-        "любым",
-        "практическим",
-        "решением",
-        "в",
-        "команде",
-        "сейчас",
-    ]
-    tokens = (seed * 5)[:120]
-    narrations = [" ".join(tokens[index : index + 24]) for index in range(0, 120, 24)]
-    narrations = [f"{value}." if not value.endswith(".") else value for value in narrations]
-    scenes = [
-        {
-            "narration": narration,
-            "on_screen_text": f"Ключевой тезис {index + 1}",
-            "claim_ids": ["claim_allowed"],
-        }
-        for index, narration in enumerate(narrations)
-    ]
-    return {
-        "working_title": "Новый AI-инструмент: что известно",
-        "hook": narrations[0],
-        "scenes": scenes,
-        "caption": "Пилотный сценарий требует ручной проверки перед публикацией.",
-    }
 
 
 def test_script_rejects_mock_package(tmp_path: Path) -> None:
@@ -189,7 +154,6 @@ def test_script_rejects_mock_package(tmp_path: Path) -> None:
             tmp_path,
             selected_story,
             package_id,
-            api_key=SECRET,
             client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_PACKAGE"
@@ -203,7 +167,6 @@ def test_script_rejects_blocked_verdicts(tmp_path: Path, verdict: str) -> None:
             tmp_path,
             selected_story,
             package_id,
-            api_key=SECRET,
             client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_VERDICT"
@@ -211,28 +174,35 @@ def test_script_rejects_blocked_verdicts(tmp_path: Path, verdict: str) -> None:
 
 def test_valid_script_filters_unverified_and_reuses_stable_pair(tmp_path: Path) -> None:
     selected_story, package_id, package = prepare_real_package(tmp_path)
-    client = FakeClient([completion(valid_script_draft(package))])
-    script, created, json_path, markdown_path, repair_used = build_script(
+    client = FakeClient([])
+    script, created, json_path, markdown_path, provider_called = build_script(
         tmp_path,
         selected_story,
         package_id,
-        api_key=SECRET,
         client=client,
     )
     assert created is True
-    assert repair_used is False
+    assert provider_called is False
     assert isinstance(script, ProductionScript)
-    assert script.word_count == 120
+    assert 90 <= script.word_count <= 170
     assert script.spoken_text == " ".join(scene.narration for scene in script.scenes)
-    assert [scene.order for scene in script.scenes] == [1, 2, 3, 4, 5]
+    assert [scene.order for scene in script.scenes] == list(range(1, len(script.scenes) + 1))
+    assert 5 <= len(script.scenes) <= 8
     assert {scene.visual_kind for scene in script.scenes} == {"TEXT_CARD"}
     assert {scene.source_label for scene in script.scenes} == {"Источник: openai.com"}
-    assert script.prompt_version == "short-video-script-v2"
-    assert set(valid_script_draft(package)) == {"working_title", "hook", "scenes", "caption"}
-    request = json.loads(client.completions.calls[0]["messages"][1]["content"])
-    assert [claim["claim_id"] for claim in request["allowed_claims"]] == ["claim_allowed"]
-    assert "claim_unverified" not in client.completions.calls[0]["messages"][1]["content"]
-    assert set(request) == {"publication_verdict", "allowed_claims", "limitations"}
+    assert script.generator == GENERATOR_VERSION == "safe-local-v1"
+    assert script.template_version == TEMPLATE_VERSION == "claim-safe-script-v1"
+    referenced = {claim_id for scene in script.scenes for claim_id in scene.claim_ids}
+    assert referenced == {"claim_allowed", "claim_verified"}
+    assert "claim_unverified" not in referenced
+    assert package.claims[0].text in script.spoken_text
+    assert package.claims[0].qualification in script.spoken_text
+    assert package.claims[1].text not in script.spoken_text
+    assert package.claims[2].text in script.spoken_text
+    assert package.claims[2].qualification in script.spoken_text
+    assert package.limitations[0] in script.spoken_text
+    assert script.hook == f"Главный факт: {package.claims[2].text}"
+    assert client.completions.calls == []
     original = (json_path.read_bytes(), markdown_path.read_bytes())
 
     unused = FakeClient([])
@@ -244,125 +214,40 @@ def test_valid_script_filters_unverified_and_reuses_stable_pair(tmp_path: Path) 
         client=unused,
     )
     assert repeated[1] is False
+    assert repeated[4] is False
     assert unused.completions.calls == []
     assert (json_path.read_bytes(), markdown_path.read_bytes()) == original
 
 
-def test_invalid_script_output_persists_nothing(tmp_path: Path) -> None:
-    selected_story, package_id, _package = prepare_real_package(tmp_path)
-    client = FakeClient([completion({}), completion({})])
+def test_script_rejects_package_without_allowed_claims(tmp_path: Path) -> None:
+    selected_story, package_id, _package = prepare_real_package(tmp_path, allow_claims=False)
     with pytest.raises(F0Error) as error:
         build_script(
             tmp_path,
             selected_story,
             package_id,
-            api_key=SECRET,
-            client=client,
+            client=FakeClient([]),
         )
-    assert error.value.code == "E_SCRIPT_OUTPUT"
-    assert len(client.completions.calls) == 2
+    assert error.value.code == "E_SCRIPT_PACKAGE"
     assert not (tmp_path / "scripts").exists()
 
 
-@pytest.mark.parametrize("claim_id", ["claim_missing", "claim_unverified"])
-def test_invalid_or_unverified_claim_reference_is_rejected(
-    tmp_path: Path, claim_id: str
-) -> None:
-    selected_story, package_id, package = prepare_real_package(tmp_path)
-    draft = valid_script_draft(package)
-    draft["scenes"][0]["claim_ids"] = [claim_id]
-    client = FakeClient([completion(draft), completion(draft)])
-    with pytest.raises(F0Error) as error:
-        build_script(
-            tmp_path,
-            selected_story,
-            package_id,
-            api_key=SECRET,
-            client=client,
-        )
-    assert error.value.code == "E_SCRIPT_OUTPUT"
-    assert len(client.completions.calls) == 2
-    assert not (tmp_path / "scripts").exists()
-
-
-def test_required_qualification_is_enforced(tmp_path: Path) -> None:
-    selected_story, package_id, package = prepare_real_package(tmp_path)
-    draft = valid_script_draft(package)
-    for scene in draft["scenes"]:
-        scene["narration"] = scene["narration"].replace(
-            "По данным официальной ленты поставщика.", "Согласно сообщению поставщика"
-        )
-    draft["hook"] = draft["scenes"][0]["narration"]
-    client = FakeClient([completion(draft), completion(draft)])
-    with pytest.raises(F0Error) as error:
-        build_script(
-            tmp_path,
-            selected_story,
-            package_id,
-            api_key=SECRET,
-            client=client,
-        )
-    assert error.value.code == "E_SCRIPT_OUTPUT"
-    assert len(client.completions.calls) == 2
-
-
-def test_v2_identity_differs_from_v1(tmp_path: Path) -> None:
+def test_script_identity_is_deterministic_and_package_bound(tmp_path: Path) -> None:
     _story, _package_id, package = prepare_real_package(tmp_path)
-    v2_fingerprint, v2_script_id = expected_script_identity(package)
-    package_digest = hashlib.sha256(
-        canonical_json(package.model_dump(mode="json")).encode("utf-8")
-    ).hexdigest()
-    v1_identity = {
-        "package_json_sha256": package_digest,
-        "package_id": package.package_id,
-        "generator": {
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
-            "api_format": "openai-chat-completions",
-            "thinking": "disabled",
-            "temperature": 0.2,
-        },
-        "prompt_version": "short-video-script-v1",
-        "prompt_sha256": "8d31bff7ad6cd9b70c027518dc2c90ef1506ce3c970c5018a8508053ed488d83",
-        "script_schema_version": 1,
-    }
-    v1_fingerprint = hashlib.sha256(canonical_json(v1_identity).encode("utf-8")).hexdigest()
-    v1_script_id = "script_" + hashlib.sha256(
-        f"f3-script:{v1_fingerprint}".encode()
-    ).hexdigest()[:24]
-    assert PROMPT_VERSION == "short-video-script-v2"
-    assert len(PROMPT_SHA256) == 64
-    assert v2_fingerprint != v1_fingerprint
-    assert v2_script_id != v1_script_id
-
-
-def test_one_repair_can_produce_valid_v2_script(tmp_path: Path) -> None:
-    selected_story, package_id, package = prepare_real_package(tmp_path)
-    client = FakeClient([completion({}), completion(valid_script_draft(package))])
-    script, created, _json, _markdown, repair_used = build_script(
-        tmp_path,
-        selected_story,
-        package_id,
-        api_key=SECRET,
-        client=client,
-    )
-    assert created is True
-    assert repair_used is True
-    assert script.word_count == 120
-    assert len(client.completions.calls) == 2
-    repair = json.loads(client.completions.calls[1]["messages"][1]["content"])["repair"]
-    assert "validation_errors" in repair
-    assert "на замену" in repair["instruction"]
+    first = expected_script_identity(package)
+    second = expected_script_identity(package)
+    assert first == second
+    changed = package.model_copy(update={"working_title": package.working_title + "!"})
+    assert expected_script_identity(changed) != first
 
 
 def test_partial_script_pair_is_a_conflict(tmp_path: Path) -> None:
-    selected_story, package_id, package = prepare_real_package(tmp_path)
-    script, _created, json_path, markdown_path, _repair_used = build_script(
+    selected_story, package_id, _package = prepare_real_package(tmp_path)
+    script, _created, json_path, markdown_path, _provider_called = build_script(
         tmp_path,
         selected_story,
         package_id,
-        api_key=SECRET,
-        client=FakeClient([completion(valid_script_draft(package))]),
+        client=FakeClient([]),
     )
     assert script.script_id in json_path.name
     markdown_path.unlink()
@@ -371,7 +256,6 @@ def test_partial_script_pair_is_a_conflict(tmp_path: Path) -> None:
             tmp_path,
             selected_story,
             package_id,
-            api_key=None,
             client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_PARTIAL"
@@ -395,6 +279,7 @@ def test_cyrillic_scene_card_renders_inside_safe_layout(tmp_path: Path) -> None:
         narration="Краткая русская фраза для озвучивания.",
         on_screen_text="Как AI меняет рабочий процесс без выдуманных обещаний",
         source_label="Источник: официальная лента поставщика",
+        claim_ids=[],
         visual_kind="TEXT_CARD",
     )
     output = tmp_path / "scene.png"
@@ -499,22 +384,3 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
     }
     assert audio.read_bytes() == b"fake-mp3"
     assert "Только narration." in subtitles.read_text(encoding="utf-8-sig")
-
-
-def test_provider_script_draft_cannot_control_deterministic_metadata() -> None:
-    value = {
-        "working_title": "Заголовок",
-        "hook": "Короткий hook.",
-        "scenes": [
-            {
-                "narration": "Короткий hook.",
-                "on_screen_text": "Hook",
-                "claim_ids": ["claim_allowed"],
-            }
-        ]
-        * 5,
-        "caption": "Подпись",
-        "word_count": 110,
-    }
-    with pytest.raises(ValueError):
-        ProviderScriptDraft.model_validate(value)

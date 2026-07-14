@@ -38,7 +38,8 @@ ai-newsroom --data-dir PATH script build STORY_ID --package-id PACKAGE_ID [--out
 ai-newsroom video render SCRIPT_JSON [--output-dir PATH] [--voice VOICE]
 ```
 
-`script build` accepts only a validated stored schema-v2 DeepSeek package. Default script output is
+`script build` accepts only a validated stored schema-v2 DeepSeek package. Its first-pilot script
+generator is `safe-local-v1`; it performs no provider request. Default script output is
 `<data-dir>/scripts/<story-id>/`. `video render` accepts only a canonical F3 script JSON; default
 output is a sibling `video/` directory. Expected failures are concise project errors without a
 traceback. Existing commands remain compatible.
@@ -49,10 +50,11 @@ Mock packages and verdicts `HOLD` or `REJECT` are rejected. `NEEDS_TEST` is elig
 narration explicitly states that the capability remains untested. `READY_WITH_QUALIFICATION`
 requires a package qualification in narration.
 
-The provider receives only package/story identity, publication verdict, claims with
-`use_in_script=true`, package limitations, and package source references. `UNVERIFIED` claims are
-never sent. The prompt forbids new facts, invented tests or experience, fabricated corroboration,
-prices, dates, availability, benchmarks, or legal conclusions.
+The Story Package is generated and validated upstream with DeepSeek. The first production script
+is then assembled deterministically from claims with `use_in_script=true`, their exact
+qualifications, package limitations, source references, and tracked neutral transitions.
+`UNVERIFIED` claims and unrelated package fields never enter script narration. No script provider
+request is made.
 
 `VENDOR_CLAIM` stays qualified, `INFERENCE` is interpretation, and `OPINION` is editorial. The
 feed-only evidence limitation remains present. Output always requires manual approval.
@@ -60,24 +62,21 @@ feed-only evidence limitation remains present. Output always requires manual app
 ## 6. Script contract and identity
 
 Schema version is `1`; language is `ru`; manual approval is `true`; target duration is 45–75
-seconds. The strict model includes script/story/package identity, input fingerprint, generator and
-prompt metadata, title, hook, spoken text, word count, 5–8 scenes, 1–3 inherited source references,
-limitations, caption, and approval flag.
+seconds. The strict model includes script/story/package identity, input fingerprint,
+`generator=safe-local-v1`, template version `claim-safe-script-v1`, title, hook, spoken text, word
+count, 5–8 scenes with claim IDs, inherited source references, limitations, caption, and approval
+flag. The normal target is 110–170 words; a safe first pilot may use 90–109 words rather than add or
+repeat claims.
 
-DeepSeek returns only working title, hook, caption, and 5–8 scenes containing narration,
-short on-screen text, and allowed package claim IDs. Local code validates claim eligibility,
-assigns order, source label, and `visual_kind=TEXT_CARD`, joins spoken text, and calculates the
-110–170 word count. The first narration is the hook and the final scene states a concrete takeaway.
+Local code chooses the first `VERIFIED` claim, otherwise the first `VENDOR_CLAIM`, otherwise the
+first allowed claim for the hook. It assembles all factual narration from allowed claim text and
+qualifications, adds status-compatible evidence language, retains limitations, assigns order and
+source labels, and sets `visual_kind=TEXT_CARD`. The final scene is neutral practical advice.
 
-The fingerprint covers the canonical validated package JSON digest, package ID, fixed DeepSeek
-model/settings, script prompt version/digest, and script schema version. `script_id` is derived from
-that fingerprint. Prompt version is `short-video-script-v2` and its tracked bytes have a fixed
-SHA-256 digest.
-
-Before provider access the builder checks for the deterministic JSON/Markdown pair and reuses a
-valid canonical snapshot. The first valid script wins. One initial request and at most one repair
-are allowed only for empty, truncated, invalid JSON, or schema-invalid output. Operational provider
-failures are not retried.
+The fingerprint covers the canonical validated package JSON digest, package ID, script schema
+version, generator version, and exact template version. `script_id` is derived from that
+fingerprint. A stored valid pair with the same identity is reused byte-for-byte before construction.
+Free-form script input, prompt v1/v2 execution, and repair calls are not part of this path.
 
 ## 7. Script persistence
 
@@ -126,14 +125,15 @@ After encoding, FFmpeg must decode the output and confirm non-empty video and au
 
 ## 11. Tests and delivery
 
-Offline tests cover package/verdict safety, claim filtering, fake DeepSeek validation, no partial
-output, stored reuse, stable exports, invalid script rejection, Cyrillic layout, and a short local
-WAV-to-MP4 render with video and audio. Existing F0/F1/F2 tests remain green.
+Offline tests cover package/verdict safety, deterministic claim and qualification retention, no
+partial output, stored reuse, stable exports, invalid script rejection, Cyrillic layout, and a
+short local WAV-to-MP4 render with video and audio. Existing F0/F1/F2 tests remain green.
 
 The one final gate is `uv sync --frozen`, Ruff, mypy, and pytest. One real ignored pilot smoke then
 builds and inspects the script and renders the video. A focused review checks approved dependencies,
 claim/TTS boundaries, path and command safety, FFmpeg invocation, ignored media/secrets, and
-regression preservation before exact-HEAD PR merge.
+regression preservation before exact-HEAD PR merge. Manual approval remains mandatory; optional
+LLM script polishing is deferred until after the first published pilot.
 
 ## 12. Output policy
 
