@@ -4,8 +4,8 @@ AI Newsroom OS is a proof-first automation system for a Russian-speaking AI news
 traceable relationships between sources, claims, editorial conclusions, and practical applications
 without treating vendor feed content as independently verified truth.
 
-**Status:** F3 first-script and vertical-video pilot. Foundation F0 and F1/F2 behavior remains
-supported.
+**Status:** F0 through F3 are implemented. The first local vertical MP4 was generated successfully
+and remains in ignored `.demo-video/` pending manual approval; nothing is published automatically.
 
 ## Document authority
 
@@ -15,6 +15,9 @@ supported.
 3. [`F3_SCRIPT_VIDEO_MVP_SPEC.md`](F3_SCRIPT_VIDEO_MVP_SPEC.md) governs only the script and video
    pilot slice.
 4. [`PROJECT_VISION.md`](PROJECT_VISION.md) is non-normative product context.
+
+Historical prompts, audits, plans, and reports are retained evidence only and never override the
+root phase specifications or [`AGENTS.md`](AGENTS.md).
 
 ## Local setup
 

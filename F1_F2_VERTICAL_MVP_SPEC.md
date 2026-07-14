@@ -1,7 +1,7 @@
 # F1/F2 DeepSeek Vertical MVP Specification
 
 Version: `1.0`
-Status: `IMPLEMENTATION_AUTHORITY`
+Status: `COMPLETED_MAINTENANCE_AUTHORITY`
 Scope: bounded live ingestion and DeepSeek Story Package slice only.
 
 ## 1. Goal

@@ -1,7 +1,7 @@
 # F0 Technical Specification
 
 Version: `0.6-owner-reviewed`  
-Status: `READY_FOR_F0`  
+Status: `COMPLETED_MAINTENANCE_AUTHORITY`
 Target: Foundation Sprint F0 only.
 
 This file is the only normative source for F0 implementation.
