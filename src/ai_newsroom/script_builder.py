@@ -411,9 +411,7 @@ def build_script(
     package_id: str,
     *,
     output_dir: Path | None = None,
-    api_key: str | None = None,
-    client: Any | None = None,
-) -> tuple[ProductionScript, bool, Path, Path, bool]:
+) -> tuple[ProductionScript, bool, Path, Path]:
     _snapshot, loaded = load_validated_package(data_dir, story_id, package_id=package_id)
     if not isinstance(loaded, RealStoryPackagePayload):
         raise F0Error("E_SCRIPT_PACKAGE", "mock packages cannot generate a production script")
@@ -421,20 +419,19 @@ def build_script(
     if package.publication_verdict in {"HOLD", "REJECT"}:
         raise F0Error("E_SCRIPT_VERDICT", "package verdict does not permit script generation")
 
-    _ = (api_key, client)
     fingerprint, script_id = expected_script_identity(package)
     selected_dir = output_dir if output_dir is not None else data_dir / "scripts" / story_id
     json_path = selected_dir / f"{script_id}.json"
     markdown_path = selected_dir / f"{script_id}.md"
     existing = _load_existing_pair(json_path, markdown_path, package)
     if existing is not None:
-        return existing, False, json_path, markdown_path, False
+        return existing, False, json_path, markdown_path
 
     script = _finalize_script(package)
     if script.input_fingerprint != fingerprint:
         raise F0Error("E_SCRIPT_OUTPUT", "safe script identity changed during construction")
     _write_pair(json_path, markdown_path, script)
-    return script, True, json_path, markdown_path, False
+    return script, True, json_path, markdown_path
 
 
 def load_script(path: Path) -> ProductionScript:
