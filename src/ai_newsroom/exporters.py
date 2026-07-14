@@ -117,7 +117,7 @@ def _render_real_markdown(payload: RealStoryPackagePayload) -> bytes:
     for claim in sorted(payload.claims, key=lambda value: value.claim_id):
         lines.extend(
             [
-                f"### `{claim.claim_id}`",
+                f"### `{_escape_markdown(claim.claim_id)}`",
                 "",
                 f"Text: {_escape_markdown(claim.text)}",
                 f"Status: {claim.status}",

@@ -285,6 +285,41 @@ def test_repair_failure_makes_only_two_calls_and_persists_nothing(tmp_path: Path
     assert package_count(tmp_path) == 0
 
 
+def test_unsafe_claim_id_is_repaired_before_markdown_export(tmp_path: Path) -> None:
+    selected_story = prepare(tmp_path)
+    from ai_newsroom.database import load_story_source
+
+    _story, source = load_story_source(tmp_path, selected_story)
+    unsafe = draft(selected_story, source.id)
+    unsafe["claims"][0]["claim_id"] = "claim_01\n# injected"
+    client = FakeClient(
+        [
+            completion(json.dumps(unsafe, ensure_ascii=False)),
+            valid_response(tmp_path, selected_story),
+        ]
+    )
+    package_id, created = build_package(
+        tmp_path,
+        selected_story,
+        NOW,
+        BuildGenerator.DEEPSEEK,
+        api_key=SECRET,
+        client=client,
+    )
+    assert created is True
+    assert len(client.completions.calls) == 2
+    export_package(
+        tmp_path,
+        selected_story,
+        ExportFormat.MARKDOWN,
+        package_id=package_id,
+    )
+    markdown = (
+        tmp_path / "exports" / selected_story / "story-package.md"
+    ).read_text(encoding="utf-8")
+    assert "# injected" not in markdown
+
+
 @pytest.mark.parametrize(
     ("provider_error", "code"),
     [

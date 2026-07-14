@@ -122,7 +122,7 @@ class DeepSeekGenerator(BaseModel):
 class RealClaim(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    claim_id: str = Field(min_length=1, max_length=100)
+    claim_id: str = Field(pattern=r"^claim_[a-z0-9_]{1,64}$")
     text: str = Field(min_length=1, max_length=2_000)
     status: Literal["VERIFIED", "VENDOR_CLAIM", "INFERENCE", "OPINION", "UNVERIFIED"]
     confidence: Literal["HIGH", "MEDIUM", "LOW"]
