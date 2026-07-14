@@ -46,6 +46,10 @@ Direct development dependencies:
 - Ruff
 - mypy
 
+Direct build-system dependency:
+
+- `uv_build>=0.9.30,<0.10.0` (build-time only)
+
 Ask before adding another direct dependency.
 
 ## Working method

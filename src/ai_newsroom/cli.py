@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from ai_newsroom.database import harvest_snapshots, init_database, list_stories
+from ai_newsroom.exporters import ExportFormat, export_package
+from ai_newsroom.models import F0Error
+from ai_newsroom.package_builder import build_package
+from ai_newsroom.rss import read_rss_fixture
+
+app = typer.Typer(no_args_is_help=True, add_completion=False)
+db_app = typer.Typer(no_args_is_help=True)
+harvest_app = typer.Typer(no_args_is_help=True)
+stories_app = typer.Typer(no_args_is_help=True)
+package_app = typer.Typer(no_args_is_help=True)
+app.add_typer(db_app, name="db")
+app.add_typer(harvest_app, name="harvest")
+app.add_typer(stories_app, name="stories")
+app.add_typer(package_app, name="package")
+
+
+def _now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _fail(error: F0Error) -> None:
+    typer.echo(f"{error.code}: {error.message}", err=True)
+    raise typer.Exit(code=1)
+
+
+@app.callback()
+def root(
+    ctx: typer.Context,
+    data_dir: Annotated[Path, typer.Option("--data-dir")] = Path("data"),
+) -> None:
+    ctx.ensure_object(dict)
+    ctx.obj["data_dir"] = data_dir
+
+
+@db_app.command("init")
+def db_init(ctx: typer.Context) -> None:
+    try:
+        created = init_database(ctx.obj["data_dir"])
+        typer.echo(f"database: {'created' if created else 'unchanged'}")
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+@harvest_app.command("run")
+def harvest_run(
+    ctx: typer.Context,
+    fixture: Annotated[Path, typer.Option("--fixture")],
+) -> None:
+    try:
+        snapshots = read_rss_fixture(fixture, _now())
+        created, unchanged = harvest_snapshots(ctx.obj["data_dir"], snapshots)
+        typer.echo(
+            f"sources created={created} unchanged={unchanged}; "
+            f"stories created={created} unchanged={unchanged}"
+        )
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+@stories_app.command("list")
+def stories_list(
+    ctx: typer.Context,
+    ids_only: Annotated[bool, typer.Option("--ids-only")] = False,
+) -> None:
+    try:
+        for story, title in list_stories(ctx.obj["data_dir"]):
+            typer.echo(story.id if ids_only else f"{story.id}\t{title}")
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+@package_app.command("build")
+def package_build(ctx: typer.Context, story_id: str) -> None:
+    try:
+        package_id, created = build_package(ctx.obj["data_dir"], story_id, _now())
+        typer.echo(f"package_id={package_id} {'created' if created else 'unchanged'}")
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+@package_app.command("export")
+def package_export(
+    ctx: typer.Context,
+    story_id: str,
+    export_format: Annotated[ExportFormat, typer.Option("--format")],
+    force: Annotated[bool, typer.Option("--force")] = False,
+) -> None:
+    try:
+        replaced, unchanged, _paths = export_package(
+            ctx.obj["data_dir"], story_id, export_format, force=force
+        )
+        typer.echo(f"exported={replaced} unchanged={unchanged}")
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
+def main() -> None:
+    app()
