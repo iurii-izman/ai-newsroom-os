@@ -170,6 +170,10 @@ def init_database(data_dir: Path) -> bool:
         if tables:
             validate_schema(connection)
             return False
+        if existed:
+            raise F0Error(
+                "E_DB_SCHEMA", "existing database has no compatible F0 schema; preserve it"
+            )
         connection.execute("BEGIN IMMEDIATE")
         try:
             for statement in DDL.values():

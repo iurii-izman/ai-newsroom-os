@@ -63,6 +63,16 @@ def test_incompatible_database_is_not_repaired(tmp_path: Path) -> None:
     assert path.read_bytes() == before
 
 
+def test_existing_empty_database_is_not_initialized(tmp_path: Path) -> None:
+    path = database_path(tmp_path)
+    path.touch()
+    before = path.read_bytes()
+    with pytest.raises(F0Error) as error:
+        init_database(tmp_path)
+    assert error.value.code == "E_DB_SCHEMA"
+    assert path.read_bytes() == before
+
+
 def test_harvest_is_atomic_idempotent_and_preserves_revisions(tmp_path: Path) -> None:
     init_database(tmp_path)
     first = parse_rss_bytes(source(), NOW)

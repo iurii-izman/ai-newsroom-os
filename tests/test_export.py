@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -51,7 +52,7 @@ def test_identical_export_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     def unexpected_replace(*_args: object) -> None:
         raise AssertionError("identical files must not be replaced")
 
-    monkeypatch.setattr(exporters.os, "replace", unexpected_replace)
+    monkeypatch.setattr(os, "replace", unexpected_replace)
     assert export_package(tmp_path, STORY_ID, ExportFormat.ALL)[:2] == (0, 2)
 
 
@@ -101,7 +102,7 @@ def test_interrupted_pair_is_detected_and_force_recovers(
     json_path.parent.mkdir(parents=True)
     json_path.write_bytes(b"old json")
     markdown_path.write_bytes(b"old markdown")
-    original_replace = exporters.os.replace
+    original_replace = os.replace
     calls = 0
 
     def fail_second(source: Path, destination: Path) -> None:
@@ -111,12 +112,12 @@ def test_interrupted_pair_is_detected_and_force_recovers(
             raise OSError("injected")
         original_replace(source, destination)
 
-    monkeypatch.setattr(exporters.os, "replace", fail_second)
+    monkeypatch.setattr(os, "replace", fail_second)
     with pytest.raises(F0Error):
         export_package(tmp_path, STORY_ID, ExportFormat.ALL, force=True)
     assert json_path.read_bytes() == Path("tests/golden/story-package.json").read_bytes()
     assert markdown_path.read_bytes() == b"old markdown"
-    monkeypatch.setattr(exporters.os, "replace", original_replace)
+    monkeypatch.setattr(os, "replace", original_replace)
     with pytest.raises(F0Error) as error:
         export_package(tmp_path, STORY_ID, ExportFormat.ALL)
     assert error.value.code == "E_EXPORT_PARTIAL"
