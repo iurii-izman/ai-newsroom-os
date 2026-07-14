@@ -25,6 +25,7 @@ htmlcov/
 *.sqlite3
 .demo-f0/
 .demo-f1-f2/
+.demo-video/
 data/
 exports/
 tmp/

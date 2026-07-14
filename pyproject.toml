@@ -1,10 +1,13 @@
 [project]
 name = "ai-newsroom"
 version = "0.1.0"
-description = "Proof-first F1/F2 vertical MVP for AI Newsroom OS"
+description = "Proof-first script and vertical-video MVP for AI Newsroom OS"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "edge-tts>=7.2,<8",
+    "imageio-ffmpeg>=0.6,<1",
     "openai>=2,<3",
+    "pillow>=12.3,<13",
     "pydantic>=2.12,<3",
     "typer>=0.20,<1",
 ]

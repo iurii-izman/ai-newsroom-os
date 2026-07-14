@@ -10,6 +10,7 @@ Verify repository root, branch, status, remote, and base SHA before changes.
 - The active specification for the requested phase is the primary authority.
 - `F0_TECHNICAL_SPEC.md` remains authoritative for existing F0 behavior.
 - `F1_F2_VERTICAL_MVP_SPEC.md` is authoritative for the F1/F2 slice when present.
+- `F3_SCRIPT_VIDEO_MVP_SPEC.md` is authoritative for the F3 script/video slice when present.
 - `PROJECT_VISION.md` is non-normative product context.
 - Historical Foundation, audit, vNext, and old prompt files are non-normative.
 - Do not reread historical documents unless the task explicitly needs them.
@@ -67,7 +68,8 @@ Do not run repeated full DoD cycles unless a normative phase spec requires them.
 
 - Automated tests are offline and deterministic.
 - Use fakes for live feeds and providers.
-- Runtime network is allowed only for explicitly approved commands.
+- Runtime network is allowed only for explicitly approved commands, including explicit Edge TTS
+  execution by `video render` in F3.
 - One real live smoke may be used for an integration slice.
 
 ## Git
