@@ -5,13 +5,24 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-from ai_newsroom.cli import app, db_app, harvest_app, package_app, stories_app
+from ai_newsroom.cli import (
+    app,
+    db_app,
+    harvest_app,
+    package_app,
+    script_app,
+    stories_app,
+    video_app,
+)
 
 
 def test_direct_dependency_declarations() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["dependencies"] == [
+        "edge-tts>=7.2,<8",
+        "imageio-ffmpeg>=0.6,<1",
         "openai>=2,<3",
+        "pillow>=12.3,<13",
         "pydantic>=2.12,<3",
         "typer>=0.20,<1",
     ]
@@ -27,7 +38,7 @@ def test_direct_dependency_declarations() -> None:
 
 
 def test_domain_modules_do_not_import_typer_or_sqlite() -> None:
-    for filename in ("models.py", "normalization.py", "rss.py"):
+    for filename in ("models.py", "normalization.py", "rss.py", "script_models.py"):
         tree = ast.parse(Path("src/ai_newsroom", filename).read_text(encoding="utf-8"))
         imports = {
             (node.module or "").split(".")[0]
@@ -44,11 +55,13 @@ def test_domain_modules_do_not_import_typer_or_sqlite() -> None:
 
 def test_exact_cli_surface_and_entry_point() -> None:
     groups = {group.name for group in app.registered_groups}
-    assert groups == {"db", "harvest", "stories", "package"}
+    assert groups == {"db", "harvest", "stories", "package", "script", "video"}
     assert {command.name for command in db_app.registered_commands} == {"init"}
     assert {command.name for command in harvest_app.registered_commands} == {"live", "run"}
     assert {command.name for command in stories_app.registered_commands} == {"list"}
     assert {command.name for command in package_app.registered_commands} == {"build", "export"}
+    assert {command.name for command in script_app.registered_commands} == {"build"}
+    assert {command.name for command in video_app.registered_commands} == {"render"}
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["scripts"] == {"ai-newsroom": "ai_newsroom.cli:main"}
 
@@ -66,6 +79,10 @@ def test_only_concrete_vertical_modules_and_bounded_network_imports() -> None:
         "normalization.py",
         "package_builder.py",
         "rss.py",
+        "script_builder.py",
+        "script_models.py",
+        "tts.py",
+        "video_renderer.py",
     }
     forbidden_imports = {"requests", "aiohttp", "socket"}
     for path in Path("src/ai_newsroom").glob("*.py"):
@@ -92,7 +109,16 @@ def test_no_runtime_artifacts_are_tracked() -> None:
         ["git", "ls-files"], check=True, capture_output=True, text=True, encoding="utf-8"
     )
     tracked = result.stdout.splitlines()
-    forbidden_suffixes = (".db", ".sqlite", ".sqlite3", ".log", ".pyc")
+    forbidden_suffixes = (
+        ".db",
+        ".sqlite",
+        ".sqlite3",
+        ".log",
+        ".pyc",
+        ".mp3",
+        ".srt",
+        ".mp4",
+    )
     normalized = [path.replace("\\", "/") for path in tracked]
     assert not [path for path in tracked if path.endswith(forbidden_suffixes)]
     assert not [path for path in normalized if "/exports/" in f"/{path}/"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import struct
@@ -13,7 +14,6 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
-import ai_newsroom.tts as tts_module
 from ai_newsroom.cli import app
 from ai_newsroom.database import harvest_snapshots, init_database, load_story_source
 from ai_newsroom.models import EVIDENCE_LIMITATION, BuildGenerator, F0Error, RealStoryPackagePayload
@@ -385,7 +385,7 @@ def test_tts_selects_preferred_voice_and_sends_only_narration(
             return str(finished.value)
         raise AssertionError("offline TTS fake unexpectedly suspended")
 
-    monkeypatch.setattr(tts_module.asyncio, "run", run_immediate)
+    monkeypatch.setattr(asyncio, "run", run_immediate)
     audio = tmp_path / "voice.mp3"
     subtitles = tmp_path / "subtitles.srt"
     voice = synthesize_tts("Только narration.", audio, subtitles)
