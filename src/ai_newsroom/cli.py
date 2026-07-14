@@ -215,14 +215,22 @@ def video_render(
     script_json: Path,
     output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
     voice: Annotated[str | None, typer.Option("--voice")] = None,
+    cover_title: Annotated[str | None, typer.Option("--cover-title")] = None,
+    cover_kicker: Annotated[str | None, typer.Option("--cover-kicker")] = None,
 ) -> None:
     try:
         rendered, info, selected_voice = render_video(
-            script_json, output_dir=output_dir, requested_voice=voice
+            script_json,
+            output_dir=output_dir,
+            requested_voice=voice,
+            cover_title=cover_title,
+            cover_kicker=cover_kicker,
         )
         typer.echo(
             f"video={rendered / 'video.mp4'} voice={selected_voice} "
-            f"dimensions={info.width}x{info.height} duration={info.duration_seconds:.3f}s"
+            f"dimensions={info.width}x{info.height} duration={info.duration_seconds:.3f}s "
+            f"cards={info.visual_card_count} loudness={info.integrated_loudness:.2f}LUFS "
+            f"tts_fallback_used={str(info.tts_fallback_used).lower()}"
         )
     except F0Error as error:
         _fail(error)

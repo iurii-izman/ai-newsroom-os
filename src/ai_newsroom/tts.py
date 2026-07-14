@@ -11,7 +11,7 @@ import edge_tts
 from ai_newsroom.models import F0Error
 
 PREFERRED_VOICES: Final = ("ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural")
-RATE: Final = "+5%"
+RATE: Final = "+12%"
 VOLUME: Final = "+0%"
 PITCH: Final = "+0Hz"
 _SRT_TIMING: Final = re.compile(
