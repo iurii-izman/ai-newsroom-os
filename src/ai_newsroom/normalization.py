@@ -150,3 +150,34 @@ def package_identity(story_snapshot_id: str, sources: list[dict[str, str]]) -> t
     fingerprint = sha256_text(package_input_json(story_snapshot_id, sources))
     package_snapshot_id = "pkg_" + sha256_text(f"story-package\n{fingerprint}")[:24]
     return fingerprint, package_snapshot_id
+
+
+def deepseek_package_identity(
+    story_snapshot_id: str,
+    source: dict[str, str | None],
+    prompt_sha256: str,
+) -> tuple[str, str]:
+    value = {
+        "schema_version": 2,
+        "generator": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "api_format": "openai-chat-completions",
+            "thinking": "disabled",
+            "temperature": 0.2,
+        },
+        "prompt_version": "f1f2-story-package-v1",
+        "prompt_sha256": prompt_sha256,
+        "request": {
+            "max_tokens": 3000,
+            "response_format": {"type": "json_object"},
+            "stream": False,
+        },
+        "story_id": story_snapshot_id,
+        "source": source,
+    }
+    fingerprint = sha256_text(canonical_json(value))
+    package_snapshot_id = "pkg_" + sha256_text(
+        f"deepseek-story-package\n{fingerprint}"
+    )[:24]
+    return fingerprint, package_snapshot_id
