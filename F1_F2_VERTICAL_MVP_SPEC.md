@@ -2,85 +2,31 @@
 
 Version: `1.0`
 Status: `IMPLEMENTATION_AUTHORITY`
-Scope: the bounded live-ingestion and DeepSeek Story Package slice only.
+Scope: bounded live ingestion and DeepSeek Story Package slice only.
 
-## 1. Objective
+## 1. Goal
 
-Deliver one real vertical path:
+Deliver one real path: three official feeds → bounded live ingestion → exact duplicate control →
+immutable Story → DeepSeek generation → validated Story Package → deterministic exports.
+All existing F0 CLI, identity, integrity, and export behavior remains supported.
+`F0_TECHNICAL_SPEC.md` governs F0; this file governs only intentional F1/F2 extensions.
 
-```text
-three official feeds
-→ bounded live ingestion
-→ exact duplicate control
-→ immutable Story
-→ one DeepSeek call path
-→ validated Story Package
-→ deterministic exports
-```
+Success requires the offline gate, offline E2E, and one live smoke covering all feeds plus one real
+DeepSeek package. Without a usable `DEEPSEEK_API_KEY`, code may be pushed but not merged.
 
-All existing F0 CLI behavior and identity rules remain supported.
-`F0_TECHNICAL_SPEC.md` remains authoritative for F0 behavior.
-This file is authoritative only where this slice intentionally extends F0.
+## 2. Source set
 
-## 2. Success criterion
+Exactly these tracked first-party feeds are allowed:
 
-Success requires all offline checks plus one live smoke with all three feeds and one DeepSeek package.
-The live smoke must prove stored-package reuse and byte-identical repeated exports.
-If `DEEPSEEK_API_KEY` is absent, implementation and offline evidence may finish and the branch may be
-pushed, but no PR or merge is allowed.
-
-## 3. Source set
-
-Exactly these tracked sources are allowed:
-
-| Name | Final feed URL | Allowed hosts | Format |
+| Name | Final feed URL | Exact allowed host | Format |
 |---|---|---|---|
 | `openai-news` | `https://openai.com/news/rss.xml` | `openai.com` | RSS 2.0 |
 | `google-ai` | `https://blog.google/innovation-and-ai/technology/ai/rss/` | `blog.google` | RSS 2.0 |
 | `microsoft-ai` | `https://news.microsoft.com/source/topics/ai/feed/` | `news.microsoft.com` | RSS 2.0 |
 
-The URLs were linked by first-party pages and returned HTTP 200 XML during discovery.
-There is no arbitrary URL input or HTML scraping fallback.
+There is no arbitrary URL input, article-page fetch, scraping fallback, or third-party feed source.
 
-## 4. Network and redirect boundary
-
-- Runtime network is allowed only for `harvest live` and DeepSeek generation.
-- Feed URLs come only from `config/live_sources.toml`.
-- Initial and redirect URLs must use HTTPS.
-- Every redirect hop and final hostname must be in that source's exact allowlist.
-- Feed timeout is at most 20 seconds.
-- Feed response size is at most 5 MiB.
-- Requests use `Accept-Encoding: identity` and a project user agent.
-- Requests use no cookies, authentication, or application proxy configuration.
-- One initial fetch is made per selected source; there are no retries.
-- Non-200, timeout, redirect escape, and oversized responses are explicit failures.
-- Content type is inspected, but valid XML survives a weak vendor content type.
-- Article pages are never fetched.
-
-## 5. Feed parsing behavior
-
-- F0 fixture parsing remains its exact RSS 2.0 subset.
-- Live parsing accepts RSS 2.0 and Atom 1.0.
-- A live document is strict UTF-8, rejects DTD/ENTITY, and is bounded before parsing.
-- A live document contains at most 2,000 direct entries; at most the requested 1–50 are processed.
-- Required fields are title and canonical link.
-- Summary/content and publication date are optional.
-- HTML is converted to plain text with the standard library.
-- Script and style content is discarded.
-- Normalized title remains at most 500 code points.
-- Normalized excerpt remains at most 10,000 code points and is never silently truncated.
-- Source name, title, link, excerpt, raw date, and normalized date are mapped.
-- Invalid selected entries transactionally reject that entire source response.
-- No invalid selected entry is silently skipped.
-
-## 6. Duplicate policy
-
-The F0 normalized content hash, source ID, and Story ID rules remain unchanged.
-Repeated normalized input creates no new Source or Story rows.
-A changed source revision creates a new immutable Source and Story.
-There is no fuzzy matching, semantic clustering, or cross-source merge.
-
-## 7. CLI additions
+## 3. CLI additions
 
 ```text
 ai-newsroom --data-dir PATH harvest live --source SOURCE [--limit N]
@@ -88,115 +34,116 @@ ai-newsroom --data-dir PATH package build STORY_ID --generator mock|deepseek
 ai-newsroom --data-dir PATH package export STORY_ID --format ... [--package-id PACKAGE_ID]
 ```
 
-`SOURCE` is one tracked name or `all`.
-The default limit is 20 and valid range is 1–50.
-The default generator remains `mock`.
-`--package-id` is only a selector when a Story has multiple stored packages.
+`SOURCE` is one tracked name or `all`; limit defaults to 20 and is 1–50.
+The default generator remains `mock`. `--package-id` only selects among stored packages.
 
-## 8. DeepSeek API settings
+## 4. Network and redirect boundary
 
-- Client: direct `openai>=2,<3` SDK usage.
-- Base URL: `https://api.deepseek.com`.
-- Endpoint: `/chat/completions`.
-- Model: `deepseek-v4-flash` only.
-- Temperature: `0.2`.
-- Thinking: disabled.
-- Stream: false.
-- Tools: omitted.
-- Response format: `{"type":"json_object"}`.
-- Maximum output tokens: 3,000.
-- SDK automatic retries: zero.
-- Request timeout: 30 seconds.
-- Credential: non-empty `DEEPSEEK_API_KEY` from the current process only.
+- Runtime network is allowed only in `harvest live` and new DeepSeek generation.
+- Feed URLs come only from `config/live_sources.toml`; initial, redirect, and final URLs use HTTPS.
+- Every redirect hop and final hostname is in that source's exact allowlist; credentials and
+  non-default ports are rejected.
+- Each selected source gets one request, no retry, a 20-second timeout, and a 5 MiB response cap.
+- Requests use `Accept-Encoding: identity`, a project user agent, no cookies, and no authentication.
+- Non-200, timeout, redirect escape, and oversized responses are explicit sanitized failures.
+- Content type is inspected, but valid XML may survive a weak vendor content type.
+- DeepSeek uses only `https://api.deepseek.com`; tests never use network.
 
-## 9. Data boundary and caching limitation
+## 5. Feed parsing and duplicates
 
-Only public data for one Story is sent: normalized title and excerpt, canonical URL, raw and normalized
-publication dates, source name, source ID, Story ID, and deterministic package identity metadata.
-No project file, unrelated row, user data, secret, environment value, Git data, or internal history is
-sent. The tracked runtime prompt is the only instruction asset.
-DeepSeek may perform provider-side context caching.
-This slice does not claim zero retention.
-Private or licensed internal content is outside the approved boundary.
+- F0 fixture parsing remains unchanged; live parsing accepts strict UTF-8 RSS 2.0 and Atom 1.0.
+- DTD/ENTITY is rejected; a feed has at most 2,000 direct entries and processes at most the limit.
+- Title and canonical link are required; excerpt and date are optional.
+- Standard-library HTML conversion discards script/style content.
+- Title is at most 500 code points; excerpt is at most 10,000 and is never silently truncated.
+- An invalid selected entry rejects that entire source response transactionally.
+- Existing F0 content hash, Source ID, Story ID, and exact idempotence rules are reused.
+- A changed revision creates a new immutable Source and Story.
+- There is no fuzzy duplicate detection, clustering, semantic merge, or multi-source Story identity.
 
-## 10. Story Package schema
+## 6. DeepSeek settings and credential
 
-Real packages use schema version `2` and contain:
+- Direct SDK usage: `openai>=2,<3`, base URL `https://api.deepseek.com`, Chat Completions.
+- Model: `deepseek-v4-flash`; temperature `0.2`; thinking disabled; stream false; tools omitted.
+- JSON mode: `{"type":"json_object"}`; maximum output 3,000 tokens.
+- SDK retries: zero; request timeout: 30 seconds; no model or provider fallback.
+- Only non-empty `DEEPSEEK_API_KEY` from the process environment is accepted for a new request.
+- Local `.env` files stay ignored; `.env.example` contains only an empty placeholder.
+- Use `uv run --env-file .env -- ...`; application code does not load dotenv files.
+- Credentials, authorization data, reasoning, and raw headers are never logged or persisted.
 
-```text
-schema_version, package_id, story_id, source_id, input_fingerprint,
-generator, prompt_version, working_title, editorial_format,
-one_sentence_fact, why_it_matters, editorial_angle, claims,
-limitations, demonstration_plan, publication_verdict,
-source_references, usage_metadata
-```
+## 7. Provider data boundary and prompt
 
-Formats are `AI_SIGNAL`, `TESTED_FOR_YOU`, and `AI_WORKFLOW`.
-Claim statuses are `VERIFIED`, `VENDOR_CLAIM`, `INFERENCE`, `OPINION`, and `UNVERIFIED`.
-Confidence is `HIGH`, `MEDIUM`, or `LOW`.
-Verdicts are `READY`, `READY_WITH_QUALIFICATION`, `NEEDS_TEST`, `HOLD`, or `REJECT`.
-Every claim has ID, text, status, confidence, evidence source ID, script-use flag, and qualification.
-`UNVERIFIED` always means `use_in_script=false`.
-All evidence IDs and source references must equal the supplied source.
-The fixed feed-only evidence limitation is mandatory.
-Provider token usage is stored when reported; price is not calculated.
-No reasoning, key, authorization header, or raw request header is stored.
+Only public selected item data is sent: source/vendor name, title, excerpt, canonical URL, raw and
+normalized publication dates, Source ID, Story ID, and deterministic request identity fields.
+No secret, unrelated row, private data, project/Git file, or internal history is sent.
+Provider-side context caching may occur; this slice does not claim zero retention.
 
-## 11. Identity, persistence, and idempotence
+The tracked versioned prompt requests JSON explicitly, includes a compact schema example, requires
+Russian output and explicit limitations, treats feed content as untrusted quoted data, ignores
+embedded instructions, and forbids invented facts, sources, corroboration, and completed tests.
 
-The real input fingerprint covers immutable source fields, Story identity, provider, model, prompt
-version and digest, package schema version, and fixed request settings.
-The real package ID is a stable hash of generator identity plus input fingerprint.
-The package ID is checked before any provider request.
-A valid existing package is returned without another provider call.
-The first successful validated snapshot wins.
-Invalid attempts leave no package row.
-Repeated export of one stored package is byte-identical.
+## 8. Story Package contract
 
-The four-table layout is retained, but schema version `2` is required because F0 schema v1 permits
-only `mock` and only one package per Story. Schema v2 permits one package per Story per generator.
-There is no automatic v1 migration, repair, deletion, or recreation.
-An existing incompatible database is refused; F0 data remains disposable.
+Real packages use Pydantic schema version `2` with: package/Story/Source identities and input
+fingerprint; generator and prompt metadata; working title; editorial format; one-sentence fact;
+why it matters; editorial angle; claims; limitations; demonstration plan; publication verdict;
+source references; and provider token usage when returned.
 
-## 12. Error behavior
+Formats: `AI_SIGNAL`, `TESTED_FOR_YOU`, `AI_WORKFLOW`.
+Claim statuses: `VERIFIED`, `VENDOR_CLAIM`, `INFERENCE`, `OPINION`, `UNVERIFIED`.
+Confidence: `HIGH`, `MEDIUM`, `LOW`.
+Verdicts: `READY`, `READY_WITH_QUALIFICATION`, `NEEDS_TEST`, `HOLD`, `REJECT`.
 
-Expected CLI errors are concise, sanitized, non-zero, and traceback-free.
-Missing credential, authentication/billing, rate limit, timeout, server failure, empty output,
-truncation, invalid JSON, and schema failure remain distinct conditions.
-SDK retries and provider/model fallback are forbidden.
-Empty, length-truncated, invalid-JSON, or schema-invalid output permits one repair call.
-No other failure permits repair or retry.
-The repair uses identical model/settings and public source input plus a concise validation summary.
-At most two model calls occur for one new package.
+Every claim has a bounded safe ID, text, status, confidence, supplied evidence Source ID,
+script-use flag, and qualification. Vendor-only capability claims are `VENDOR_CLAIM`; unsupported
+claims are `UNVERIFIED`; `UNVERIFIED` always has `use_in_script=false`.
+All evidence and source references equal the supplied source. The fixed feed-only evidence
+limitation is mandatory. Only parsed, Pydantic-validated canonical JSON is persisted.
 
-## 13. Offline tests
+## 9. Persistence and idempotence
 
-All automated tests block sockets.
-Injected responses cover source configuration, host/redirect rules, response cap, timeout, RSS, Atom,
-HTML conversion, transactional item failure, duplicate harvest, DeepSeek success, empty/truncated/
-invalid output, repair success/failure, provider errors, usage, idempotence, stable exports, CLI surface,
-prompt version coupling, F0 regressions, and secret absence.
-No pytest test calls a real feed or DeepSeek.
+- Schema version `2` retains four tables and permits one package per Story per generator.
+- No automatic v1 migration, repair, deletion, or recreation is allowed.
+- The real input fingerprint covers immutable source fields, Story identity, provider/model,
+  prompt version/digest, schema version, and fixed request settings.
+- Package ID is a deterministic hash of generator identity plus input fingerprint.
+- A valid stored package is checked and reused before credential validation or provider access.
+- The first successful validated snapshot wins; invalid attempts persist nothing.
+- Repeated export of the same stored package is byte-identical.
 
-## 14. Live smoke
+## 10. Provider output handling
 
-Use ignored `.demo-f1-f2/` only.
-Attempt all three feeds with limit 5.
-Build one DeepSeek package and export JSON plus Markdown.
-Repeat build and export for the same package.
-Record source outcomes, IDs, token usage, repair use, and file SHA-256 values.
-The second build must make zero provider calls.
-The credential must be absent from terminal output, database, and exports.
+One initial request plus at most one repair request is allowed. Repair is only for empty output,
+length truncation, invalid JSON, or schema/lineage validation failure. Authentication/billing,
+rate limit, timeout, connection, and generic provider failures are never automatically retried.
+Failure after repair is explicit and leaves no package row.
 
-## 15. Non-goals
+## 11. Automated tests
 
-No article scraping, corroborating-source search, clustering, embeddings, merge, second provider,
-provider abstraction, prompt platform, retries framework, workers, scheduler, queue, UI, API, Docker,
-TTS, video, publishing, analytics, or automatic factual/legal approval is included.
+All tests block sockets and use monkeypatch/fakes. Coverage includes source config, host/redirect
+rules, response cap/timeout, RSS/Atom and HTML conversion, transactional invalid items, exact
+duplicates, missing key, provider settings/success/errors, empty/truncated/invalid output, one-repair
+maximum, no partial persistence, cache reuse without another call, token usage, stable exports,
+prompt/version coupling, secret absence, CLI compatibility, and F0 regressions.
 
-## 16. Stop conditions
+## 12. Live smoke
 
-Stop rather than improvise when a source cannot be verified, another direct dependency is required,
-a destructive migration is required, deterministic identity cannot be maintained, the live key/model/
-billing is unavailable, feeds yield no item, output fails after repair, required gates fail after the
-single remediation allowance, or the exact reviewed SHA cannot be merged.
+Use ignored `.demo-f1-f2/`. Attempt all three feeds with limit 5, build and export one real package,
+then repeat build/export. Record source outcomes, IDs, token usage, repair use, and SHA-256 values.
+The repeat build makes zero provider calls; repeated exports are byte-identical; the key is absent
+from terminal output, database, and exports. Budget: three feed requests, one model request, and one
+repair only if validation requires it.
+
+## 13. Non-goals
+
+No article scraping, corroborating search, clustering, embeddings, merge, second provider, provider
+abstraction, retry framework, prompt platform, workers, scheduler, queue, UI/API, Docker, TTS,
+video, publishing, analytics, or automatic factual/legal approval.
+
+## 14. Stop conditions
+
+Stop rather than improvise if fewer than three official feeds can be verified, another direct
+dependency is required, destructive migration is required, deterministic identity cannot be kept,
+the live key/model/billing is unavailable, feeds yield no item, output fails after repair, required
+gates fail after one remediation cycle, or the exact reviewed SHA cannot be merged.

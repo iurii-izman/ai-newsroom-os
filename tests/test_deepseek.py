@@ -66,7 +66,7 @@ def completion(
         prompt_tokens=input_tokens,
         completion_tokens=output_tokens,
         total_tokens=input_tokens + output_tokens,
-        prompt_tokens_details=SimpleNamespace(cached_tokens=cached_tokens),
+        prompt_cache_hit_tokens=cached_tokens,
     )
     choice = SimpleNamespace(
         finish_reason=finish_reason,
@@ -191,7 +191,7 @@ def test_success_settings_usage_vendor_claim_and_no_second_call(tmp_path: Path) 
         selected_story,
         "2026-07-14T13:00:00Z",
         BuildGenerator.DEEPSEEK,
-        api_key=SECRET,
+        api_key=None,
         client=unused_client,
     ) == (package_id, False)
     assert unused_client.completions.calls == []

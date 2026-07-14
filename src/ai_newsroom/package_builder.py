@@ -190,11 +190,14 @@ def _build_mock_package(
 def _usage_metadata(response: Any, *, repair_used: bool) -> UsageMetadata:
     usage = getattr(response, "usage", None)
     prompt_details = getattr(usage, "prompt_tokens_details", None)
+    cache_hit_tokens = getattr(usage, "prompt_cache_hit_tokens", None)
+    if cache_hit_tokens is None:
+        cache_hit_tokens = getattr(prompt_details, "cached_tokens", None)
     return UsageMetadata(
         input_tokens=getattr(usage, "prompt_tokens", None),
         output_tokens=getattr(usage, "completion_tokens", None),
         total_tokens=getattr(usage, "total_tokens", None),
-        cache_hit_tokens=getattr(prompt_details, "cached_tokens", None),
+        cache_hit_tokens=cache_hit_tokens,
         repair_used=repair_used,
     )
 
@@ -270,10 +273,6 @@ def _build_deepseek_package(
     api_key: str | None,
     client: Any | None,
 ) -> tuple[str, bool]:
-    if api_key is None or not api_key.strip():
-        raise F0Error(
-            "E_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY is required for the deepseek generator"
-        )
     story, source = load_story_source(data_dir, requested_story_id)
     fingerprint, package_id, public_source = expected_deepseek_identity(story, source)
     stored = find_stored_package(data_dir, package_id)
@@ -282,6 +281,11 @@ def _build_deepseek_package(
             data_dir, requested_story_id, package_id=package_id
         )
         return package_id, False
+
+    if api_key is None or not api_key.strip():
+        raise F0Error(
+            "E_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY is required for the deepseek generator"
+        )
 
     prompt = load_runtime_prompt()
     selected_client = client if client is not None else create_client(api_key)
