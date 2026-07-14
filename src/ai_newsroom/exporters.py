@@ -6,7 +6,7 @@ from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
 
-from ai_newsroom.models import F0Error, StoryPackagePayload
+from ai_newsroom.models import F0Error, RealStoryPackagePayload, StoryPackage, StoryPackagePayload
 from ai_newsroom.package_builder import load_validated_package
 
 
@@ -16,12 +16,18 @@ class ExportFormat(StrEnum):
     ALL = "all"
 
 
-def render_json(payload: StoryPackagePayload) -> bytes:
+def render_json(payload: StoryPackage) -> bytes:
     value = payload.model_dump(mode="json")
-    value["sources"] = sorted(value["sources"], key=lambda source: source["id"])
-    value["claims"] = sorted(value["claims"], key=lambda claim: claim["id"])
-    for claim in value["claims"]:
-        claim["source_ids"] = sorted(claim["source_ids"])
+    if isinstance(payload, StoryPackagePayload):
+        value["sources"] = sorted(value["sources"], key=lambda source: source["id"])
+        value["claims"] = sorted(value["claims"], key=lambda claim: claim["id"])
+        for claim in value["claims"]:
+            claim["source_ids"] = sorted(claim["source_ids"])
+    else:
+        value["claims"] = sorted(value["claims"], key=lambda claim: claim["claim_id"])
+        value["source_references"] = sorted(
+            value["source_references"], key=lambda source: source["source_id"]
+        )
     return (
         json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     ).encode("utf-8")
@@ -38,7 +44,11 @@ def _shown(value: str | None) -> str:
     return "null" if value is None else _escape_markdown(value)
 
 
-def render_markdown(payload: StoryPackagePayload) -> bytes:
+def _shown_count(value: int | None) -> str:
+    return _shown(None if value is None else str(value))
+
+
+def _render_mock_markdown(payload: StoryPackagePayload) -> bytes:
     source = payload.sources[0]
     claim = payload.claims[0]
     lines = [
@@ -79,6 +89,82 @@ def render_markdown(payload: StoryPackagePayload) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
+def _render_real_markdown(payload: RealStoryPackagePayload) -> bytes:
+    lines = [
+        "# Story Package",
+        "",
+        "Generation mode: DEEPSEEK",
+        "Publishable: editorial verdict only; human review required",
+        "Warning: Evidence is limited to one official vendor feed.",
+        "",
+        f"Package ID: `{payload.package_id}`",
+        f"Story ID: `{payload.story_id}`",
+        f"Source ID: `{payload.source_id}`",
+        f"Prompt version: `{payload.prompt_version}`",
+        f"Working title: {_escape_markdown(payload.working_title)}",
+        f"Editorial format: {payload.editorial_format}",
+        f"Publication verdict: {payload.publication_verdict}",
+        "",
+        "## Editorial summary",
+        "",
+        f"Fact: {_escape_markdown(payload.one_sentence_fact)}",
+        f"Why it matters: {_escape_markdown(payload.why_it_matters)}",
+        f"Angle: {_escape_markdown(payload.editorial_angle)}",
+        "",
+        "## Claims",
+        "",
+    ]
+    for claim in sorted(payload.claims, key=lambda value: value.claim_id):
+        lines.extend(
+            [
+                f"### `{_escape_markdown(claim.claim_id)}`",
+                "",
+                f"Text: {_escape_markdown(claim.text)}",
+                f"Status: {claim.status}",
+                f"Confidence: {claim.confidence}",
+                f"Evidence source ID: `{claim.evidence_source_id}`",
+                f"Use in script: {str(claim.use_in_script).lower()}",
+                f"Qualification: {_escape_markdown(claim.qualification)}",
+                "",
+            ]
+        )
+    lines.extend(["## Limitations", ""])
+    lines.extend(f"- {_escape_markdown(value)}" for value in payload.limitations)
+    lines.extend(["", "## Demonstration plan", ""])
+    lines.extend(f"- {_escape_markdown(value)}" for value in payload.demonstration_plan)
+    lines.extend(["", "## Sources", ""])
+    for reference in payload.source_references:
+        lines.append(
+            f"- `{reference.source_id}` — {_escape_markdown(reference.canonical_url)}"
+        )
+    usage = payload.usage_metadata
+    lines.extend(
+        [
+            "",
+            "## Generator metadata",
+            "",
+            f"Provider: {payload.generator.provider}",
+            f"Model: {payload.generator.model}",
+            f"API format: {payload.generator.api_format}",
+            f"Thinking: {payload.generator.thinking}",
+            f"Temperature: {payload.generator.temperature}",
+            f"Input tokens: {_shown_count(usage.input_tokens)}",
+            f"Output tokens: {_shown_count(usage.output_tokens)}",
+            f"Total tokens: {_shown_count(usage.total_tokens)}",
+            f"Cache-hit tokens: {_shown_count(usage.cache_hit_tokens)}",
+            f"Repair used: {str(usage.repair_used).lower()}",
+            "",
+        ]
+    )
+    return "\n".join(lines).encode("utf-8")
+
+
+def render_markdown(payload: StoryPackage) -> bytes:
+    if isinstance(payload, StoryPackagePayload):
+        return _render_mock_markdown(payload)
+    return _render_real_markdown(payload)
+
+
 def _write_temp(path: Path, content: bytes) -> None:
     with path.open("wb") as stream:
         stream.write(content)
@@ -92,9 +178,15 @@ def export_package(
     export_format: ExportFormat,
     *,
     force: bool = False,
+    package_id: str | None = None,
 ) -> tuple[int, int, list[Path]]:
-    _snapshot, payload = load_validated_package(data_dir, requested_story_id)
-    output_dir = data_dir / "exports" / payload.story.id
+    _snapshot, payload = load_validated_package(
+        data_dir, requested_story_id, package_id=package_id
+    )
+    selected_story_id = (
+        payload.story.id if isinstance(payload, StoryPackagePayload) else payload.story_id
+    )
+    output_dir = data_dir / "exports" / selected_story_id
     rendered = {
         "json": render_json(payload),
         "markdown": render_markdown(payload),

@@ -44,7 +44,7 @@ def test_init_is_exact_idempotent_and_configures_connections(tmp_path: Path) -> 
             )
         }
         assert tables == {"schema_meta", "sources", "stories", "story_packages"}
-        assert connection.execute("SELECT * FROM schema_meta").fetchall() == [(1, 1)]
+        assert connection.execute("SELECT * FROM schema_meta").fetchall() == [(1, 2)]
     with open_database(tmp_path) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
@@ -55,7 +55,20 @@ def test_incompatible_database_is_not_repaired(tmp_path: Path) -> None:
     path = database_path(tmp_path)
     with sqlite3.connect(path) as connection:
         connection.execute("PRAGMA ignore_check_constraints = ON")
-        connection.execute("UPDATE schema_meta SET version=2")
+        connection.execute("UPDATE schema_meta SET version=3")
+    before = path.read_bytes()
+    with pytest.raises(F0Error) as error:
+        init_database(tmp_path)
+    assert error.value.code == "E_DB_SCHEMA"
+    assert path.read_bytes() == before
+
+
+def test_legacy_schema_version_is_refused_without_mutation(tmp_path: Path) -> None:
+    init_database(tmp_path)
+    path = database_path(tmp_path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute("UPDATE schema_meta SET version=1")
     before = path.read_bytes()
     with pytest.raises(F0Error) as error:
         init_database(tmp_path)

@@ -1,83 +1,111 @@
 # AI Newsroom OS — Codex Instructions
 
+## Working directory
+
+Always work from `C:\Dev\ai-newsroom-os`.
+Verify repository root, branch, status, remote, and base SHA before changes.
+
 ## Authority
 
-- `F0_TECHNICAL_SPEC.md` is the sole normative F0 specification.
-- `docs/f0-minimal-scope.md` is a derived checklist.
+- The active specification for the requested phase is the primary authority.
+- `F0_TECHNICAL_SPEC.md` remains authoritative for existing F0 behavior.
+- `F1_F2_VERTICAL_MVP_SPEC.md` is authoritative for the F1/F2 slice when present.
 - `PROJECT_VISION.md` is non-normative product context.
-- Historical foundation and audit files are non-normative.
-- If documents conflict, `F0_TECHNICAL_SPEC.md` wins.
+- Historical Foundation, audit, vNext, and old prompt files are non-normative.
+- Do not reread historical documents unless the task explicitly needs them.
 
-## Scope
+## Delivery mode
 
-Implement Foundation F0 only when explicitly requested.
+Default to one bounded vertical delivery:
 
-Do not create:
+preflight → short inline plan → implementation → targeted tests →
+one final quality gate → one focused review/security check →
+at most one remediation cycle → Git delivery when requested.
 
-- live network ingestion;
-- clustering or multi-source merge;
-- real LLM providers;
-- UI or API;
-- Docker;
-- TTS, video or publishing;
-- future placeholders or speculative abstractions.
+Do not create separate planning or audit documents unless a public contract,
+database schema, direct dependency, major subsystem, irreversible decision,
+or real requirement conflict requires one.
 
-## Environment
+## Architecture
 
-- Windows 11
-- Python 3.12.x
-- `uv`
-- Ryzen 3 5300U
-- 16 GB RAM
-- no GPU requirement
-- no Docker
-- no network in runtime, tests or F0 demo
+Prefer a minimal modular monolith and concrete code.
+
+Do not add without a current consumer:
+ports/adapters, generic repositories, provider frameworks, plugin systems,
+state machines, workers, queues, event buses, Docker, ORM, migration frameworks,
+UI/API placeholders, future modules, or empty directories.
 
 ## Dependencies
 
-Direct runtime dependencies:
+Use the existing stack.
+A new direct dependency requires a brief owner-approved reason.
+Normal transitive dependencies do not require separate approval.
 
-- Typer
-- Pydantic v2
+## Local secrets
 
-Direct development dependencies:
+- Local `.env` and `.env.local` files are allowed and must remain ignored.
+- Track only `.env.example` with empty placeholders.
+- Prefer `uv run --env-file .env -- <command>`.
+- Application code reads environment variables; do not add dotenv loaders without need.
+- Never print, persist, commit, or expose secrets.
 
-- pytest
-- Ruff
-- mypy
+## Quality
 
-Direct build-system dependency:
+During implementation, run targeted tests for changed behavior.
 
-- `uv_build>=0.9.30,<0.10.0` (build-time only)
+Before delivery, run once:
+- `uv sync --frozen`;
+- Ruff;
+- mypy;
+- pytest;
+- one relevant end-to-end smoke.
 
-Ask before adding another direct dependency.
+Run a security diff scan only for security-sensitive changes.
+Do not run repeated full DoD cycles unless a normative phase spec requires them.
 
-## Working method
+## Tests and network
 
-1. Read `F0_TECHNICAL_SPEC.md` completely.
-2. Inspect the repository before editing.
-3. Present a short file-level plan.
-4. Implement the smallest compliant vertical slice.
-5. Add tests with each behavior.
-6. Run Ruff, mypy and pytest.
-7. Run the full Definition of Done twice.
-8. Report exact results and deviations.
+- Automated tests are offline and deterministic.
+- Use fakes for live feeds and providers.
+- Runtime network is allowed only for explicitly approved commands.
+- One real live smoke may be used for an integration slice.
 
-## Safety
+## Git
 
-- Never use network in tests.
-- Never run destructive Git commands.
-- Never recreate or repair an existing database automatically.
-- Never overwrite differing exports without explicit `--force`.
-- Never expose secrets or raw fixture bodies in logs.
-- Never commit or push unless explicitly requested.
+- Do not perform feature work directly on `main`.
+- No force-push, destructive Git commands, or amend of reviewed commits.
+- Prefer 3–5 logical commits for a large vertical slice.
+- Verify exact reviewed HEAD before merge.
+- Commit/push/PR/merge only when included in the task.
+
+## Findings
+
+Block only on Blocker, High, material Medium, failed checks,
+data-loss/corruption, secret exposure, security-boundary violation,
+public-contract violation, unapproved dependency, or scope expansion.
+
+Do not block on style, naming, speculative refactoring,
+future-phase suggestions, or harmless Low findings.
+
+Maximum one remediation cycle.
 
 ## Stop conditions
 
-Stop and report instead of guessing when:
+Stop and report when:
+- active requirements materially conflict;
+- a destructive or irreversible action lacks approval;
+- a new direct dependency lacks approval;
+- data could be lost or corrupted;
+- a secret may be exposed;
+- a Blocker/High remains after one remediation cycle.
 
-- the specification conflicts with itself;
-- completion requires a non-goal;
-- a new direct dependency appears necessary;
-- a destructive action would be required;
-- deterministic behavior cannot be achieved.
+## Reporting
+
+Return only:
+- verdict;
+- what changed;
+- checks;
+- commits/push/PR/merge;
+- genuine deviations;
+- blockers;
+- one next step.

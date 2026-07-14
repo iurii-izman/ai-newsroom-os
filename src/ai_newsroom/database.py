@@ -14,7 +14,7 @@ DDL = {
     "schema_meta": """
         CREATE TABLE schema_meta(
           singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-          version INTEGER NOT NULL CHECK(version = 1)
+          version INTEGER NOT NULL CHECK(version = 2)
         )
     """,
     "sources": """
@@ -32,6 +32,7 @@ DDL = {
           discovered_at TEXT NOT NULL CHECK(length(discovered_at)>0),
           content_hash TEXT NOT NULL
             CHECK(length(content_hash)=64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+          source_name TEXT NULL CHECK(source_name IS NULL OR length(source_name)>0),
           UNIQUE(canonical_url, content_hash)
         )
     """,
@@ -48,15 +49,19 @@ DDL = {
           package_id TEXT PRIMARY KEY NOT NULL
             CHECK(length(package_id)=28 AND substr(package_id,1,4)='pkg_'
                   AND substr(package_id,5) NOT GLOB '*[^0-9a-f]*'),
-          story_id TEXT UNIQUE NOT NULL REFERENCES stories(id),
-          schema_version INTEGER NOT NULL CHECK(schema_version=1),
-          generator_name TEXT NOT NULL CHECK(generator_name='mock'),
-          generator_version TEXT NOT NULL CHECK(generator_version='mock-v1'),
+          story_id TEXT NOT NULL REFERENCES stories(id),
+          schema_version INTEGER NOT NULL CHECK(schema_version IN (1, 2)),
+          generator_name TEXT NOT NULL CHECK(generator_name IN ('mock', 'deepseek')),
+          generator_version TEXT NOT NULL
+            CHECK((generator_name='mock' AND generator_version='mock-v1')
+                  OR (generator_name='deepseek'
+                      AND generator_version='deepseek-v4-flash')),
           input_fingerprint TEXT NOT NULL
             CHECK(length(input_fingerprint)=64
                   AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
           payload_json TEXT NOT NULL CHECK(length(payload_json) BETWEEN 2 AND 1000000),
-          built_at TEXT NOT NULL CHECK(length(built_at)>0)
+          built_at TEXT NOT NULL CHECK(length(built_at)>0),
+          UNIQUE(story_id, generator_name)
         )
     """,
 }
@@ -73,6 +78,7 @@ EXPECTED_COLUMNS = {
         "published_at_raw",
         "discovered_at",
         "content_hash",
+        "source_name",
     ),
     "stories": ("id", "primary_source_id"),
     "story_packages": (
@@ -136,7 +142,7 @@ def validate_schema(connection: sqlite3.Connection) -> None:
             if stored is None or _normalized_ddl(str(stored[0])) != _normalized_ddl(DDL[table]):
                 raise F0Error("E_DB_SCHEMA", "database table definition is incompatible with F0")
         rows = connection.execute("SELECT singleton, version FROM schema_meta").fetchall()
-        if rows != [(1, 1)]:
+        if rows != [(1, 2)]:
             raise F0Error("E_DB_SCHEMA", "database schema version metadata is incompatible")
     except F0Error:
         raise
@@ -178,7 +184,7 @@ def init_database(data_dir: Path) -> bool:
         try:
             for statement in DDL.values():
                 connection.execute(statement)
-            connection.execute("INSERT INTO schema_meta(singleton, version) VALUES (1, 1)")
+            connection.execute("INSERT INTO schema_meta(singleton, version) VALUES (1, 2)")
             connection.execute("COMMIT")
         except sqlite3.Error:
             if connection.in_transaction:
@@ -218,8 +224,8 @@ def harvest_snapshots(data_dir: Path, snapshots: list[SourceSnapshot]) -> tuple[
                     """
                     INSERT OR IGNORE INTO sources(
                       id, original_url, canonical_url, title, summary_text, published_at,
-                      published_at_raw, discovered_at, content_hash
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      published_at_raw, discovered_at, content_hash, source_name
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         snapshot.id,
@@ -231,6 +237,7 @@ def harvest_snapshots(data_dir: Path, snapshots: list[SourceSnapshot]) -> tuple[
                         snapshot.published_at_raw,
                         snapshot.discovered_at,
                         snapshot.content_hash,
+                        snapshot.source_name,
                     ),
                 )
                 source_created = connection.total_changes - before
@@ -238,7 +245,7 @@ def harvest_snapshots(data_dir: Path, snapshots: list[SourceSnapshot]) -> tuple[
                 existing = connection.execute(
                     """
                     SELECT canonical_url, title, summary_text, published_at,
-                           published_at_raw, content_hash
+                           published_at_raw, content_hash, source_name
                     FROM sources WHERE id = ?
                     """,
                     (snapshot.id,),
@@ -250,6 +257,7 @@ def harvest_snapshots(data_dir: Path, snapshots: list[SourceSnapshot]) -> tuple[
                     snapshot.published_at,
                     snapshot.published_at_raw,
                     snapshot.content_hash,
+                    snapshot.source_name,
                 )
                 if existing != expected:
                     raise F0Error("E_DB_SCHEMA", "existing source conflicts with its identity")
@@ -304,6 +312,7 @@ def _source_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceSnapshot:
         published_at_raw=None if row[6] is None else str(row[6]),
         discovered_at=str(row[7]),
         content_hash=str(row[8]),
+        source_name=None if row[9] is None else str(row[9]),
     )
 
 
@@ -321,7 +330,7 @@ def load_story_source(data_dir: Path, requested_story_id: str) -> tuple[Story, S
             source_row = connection.execute(
                 """
                 SELECT id, original_url, canonical_url, title, summary_text, published_at,
-                       published_at_raw, discovered_at, content_hash
+                       published_at_raw, discovered_at, content_hash, source_name
                 FROM sources WHERE id = ?
                 """,
                 (story_row[1],),
@@ -360,12 +369,23 @@ def save_package(data_dir: Path, snapshot: StoryPackageSnapshot) -> bool:
                 """
                 SELECT package_id, story_id, schema_version, generator_name, generator_version,
                        input_fingerprint, payload_json, built_at
-                FROM story_packages WHERE story_id = ?
+                FROM story_packages WHERE story_id = ? AND generator_name = ?
                 """,
-                (snapshot.story_id,),
+                (snapshot.story_id, snapshot.generator_name),
             ).fetchone()
             if row is not None:
                 existing = _package_from_row(row)
+                if (
+                    snapshot.generator_name == "deepseek"
+                    and existing.package_id == snapshot.package_id
+                    and existing.story_id == snapshot.story_id
+                    and existing.schema_version == snapshot.schema_version
+                    and existing.generator_name == snapshot.generator_name
+                    and existing.generator_version == snapshot.generator_version
+                    and existing.input_fingerprint == snapshot.input_fingerprint
+                ):
+                    connection.execute("COMMIT")
+                    return False
                 if existing.model_dump(exclude={"built_at"}) != snapshot.model_dump(
                     exclude={"built_at"}
                 ):
@@ -402,21 +422,55 @@ def save_package(data_dir: Path, snapshot: StoryPackageSnapshot) -> bool:
             raise _map_sqlite_error(error) from None
 
 
-def load_stored_package(data_dir: Path, requested_story_id: str) -> StoryPackageSnapshot:
+def find_stored_package(
+    data_dir: Path, package_id: str
+) -> StoryPackageSnapshot | None:
     with open_database(data_dir) as connection:
         try:
             row = connection.execute(
                 """
                 SELECT package_id, story_id, schema_version, generator_name, generator_version,
                        input_fingerprint, payload_json, built_at
-                FROM story_packages WHERE story_id = ?
+                FROM story_packages WHERE package_id = ?
                 """,
-                (requested_story_id,),
+                (package_id,),
             ).fetchone()
         except sqlite3.Error as error:
             raise _map_sqlite_error(error) from None
-    if row is None:
+    return None if row is None else _package_from_row(row)
+
+
+def load_stored_package(
+    data_dir: Path,
+    requested_story_id: str,
+    package_id: str | None = None,
+    generator_name: str | None = None,
+) -> StoryPackageSnapshot:
+    with open_database(data_dir) as connection:
+        try:
+            query = """
+                SELECT package_id, story_id, schema_version, generator_name, generator_version,
+                       input_fingerprint, payload_json, built_at
+                FROM story_packages WHERE story_id = ?
+            """
+            parameters: list[str] = [requested_story_id]
+            if package_id is not None:
+                query += " AND package_id = ?"
+                parameters.append(package_id)
+            if generator_name is not None:
+                query += " AND generator_name = ?"
+                parameters.append(generator_name)
+            query += " ORDER BY package_id"
+            rows = connection.execute(query, parameters).fetchall()
+        except sqlite3.Error as error:
+            raise _map_sqlite_error(error) from None
+    if not rows:
         raise F0Error(
             "E_PACKAGE_NOT_BUILT", "Story package does not exist; build the package and retry"
         )
-    return _package_from_row(row)
+    if len(rows) > 1:
+        raise F0Error(
+            "E_PACKAGE_AMBIGUOUS",
+            "Story has multiple packages; select one with --package-id",
+        )
+    return _package_from_row(rows[0])

@@ -10,7 +10,11 @@ from ai_newsroom.cli import app, db_app, harvest_app, package_app, stories_app
 
 def test_direct_dependency_declarations() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["dependencies"] == ["pydantic>=2.12,<3", "typer>=0.20,<1"]
+    assert project["project"]["dependencies"] == [
+        "openai>=2,<3",
+        "pydantic>=2.12,<3",
+        "typer>=0.20,<1",
+    ]
     assert project["dependency-groups"]["dev"] == [
         "mypy>=1.19,<2",
         "pytest>=9,<10",
@@ -42,26 +46,28 @@ def test_exact_cli_surface_and_entry_point() -> None:
     groups = {group.name for group in app.registered_groups}
     assert groups == {"db", "harvest", "stories", "package"}
     assert {command.name for command in db_app.registered_commands} == {"init"}
-    assert {command.name for command in harvest_app.registered_commands} == {"run"}
+    assert {command.name for command in harvest_app.registered_commands} == {"live", "run"}
     assert {command.name for command in stories_app.registered_commands} == {"list"}
     assert {command.name for command in package_app.registered_commands} == {"build", "export"}
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["scripts"] == {"ai-newsroom": "ai_newsroom.cli:main"}
 
 
-def test_only_concrete_f0_modules_and_no_network_client_imports() -> None:
+def test_only_concrete_vertical_modules_and_bounded_network_imports() -> None:
     modules = {path.name for path in Path("src/ai_newsroom").glob("*.py")}
     assert modules == {
         "__init__.py",
         "cli.py",
         "database.py",
+        "deepseek.py",
         "exporters.py",
+        "live_sources.py",
         "models.py",
         "normalization.py",
         "package_builder.py",
         "rss.py",
     }
-    forbidden_imports = {"requests", "httpx", "aiohttp", "urllib.request", "socket"}
+    forbidden_imports = {"requests", "aiohttp", "socket"}
     for path in Path("src/ai_newsroom").glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         imports = {
@@ -75,6 +81,10 @@ def test_only_concrete_f0_modules_and_no_network_client_imports() -> None:
             for alias in node.names
         }
         assert imports.isdisjoint(forbidden_imports)
+        if path.name != "live_sources.py":
+            assert "urllib.request" not in imports
+        if path.name != "deepseek.py":
+            assert "openai" not in imports
 
 
 def test_no_runtime_artifacts_are_tracked() -> None:
@@ -86,3 +96,11 @@ def test_no_runtime_artifacts_are_tracked() -> None:
     normalized = [path.replace("\\", "/") for path in tracked]
     assert not [path for path in tracked if path.endswith(forbidden_suffixes)]
     assert not [path for path in normalized if "/exports/" in f"/{path}/"]
+
+
+def test_only_approved_provider_credential_is_referenced() -> None:
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in Path("src/ai_newsroom").glob("*.py")
+    )
+    assert "DEEPSEEK_API_KEY" in source
+    assert "OPENAI_API_KEY" not in source

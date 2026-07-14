@@ -1,0 +1,6 @@
+interface:
+  display_name: "Focused Review"
+  short_description: "Review a diff for material merge blockers"
+
+policy:
+  allow_implicit_invocation: false

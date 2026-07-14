@@ -1,0 +1,20 @@
+[[sources]]
+name = "openai-news"
+feed_url = "https://openai.com/news/rss.xml"
+allowed_hosts = ["openai.com"]
+feed_format = "rss2"
+enabled = true
+
+[[sources]]
+name = "google-ai"
+feed_url = "https://blog.google/innovation-and-ai/technology/ai/rss/"
+allowed_hosts = ["blog.google"]
+feed_format = "rss2"
+enabled = true
+
+[[sources]]
+name = "microsoft-ai"
+feed_url = "https://news.microsoft.com/source/topics/ai/feed/"
+allowed_hosts = ["news.microsoft.com"]
+feed_format = "rss2"
+enabled = true

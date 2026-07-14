@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -8,9 +10,10 @@ import typer
 
 from ai_newsroom.database import harvest_snapshots, init_database, list_stories
 from ai_newsroom.exporters import ExportFormat, export_package
-from ai_newsroom.models import F0Error
-from ai_newsroom.package_builder import build_package
-from ai_newsroom.rss import read_rss_fixture
+from ai_newsroom.live_sources import SOURCE_NAMES, fetch_feed, load_live_sources
+from ai_newsroom.models import BuildGenerator, F0Error, RealStoryPackagePayload
+from ai_newsroom.package_builder import build_package, load_validated_package
+from ai_newsroom.rss import parse_live_feed_bytes, read_rss_fixture
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 db_app = typer.Typer(no_args_is_help=True)
@@ -21,6 +24,13 @@ app.add_typer(db_app, name="db")
 app.add_typer(harvest_app, name="harvest")
 app.add_typer(stories_app, name="stories")
 app.add_typer(package_app, name="package")
+
+
+class LiveSourceSelection(StrEnum):
+    OPENAI_NEWS = "openai-news"
+    GOOGLE_AI = "google-ai"
+    MICROSOFT_AI = "microsoft-ai"
+    ALL = "all"
 
 
 def _now() -> str:
@@ -70,6 +80,38 @@ def harvest_run(
         _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
 
 
+@harvest_app.command("live")
+def harvest_live(
+    ctx: typer.Context,
+    source: Annotated[LiveSourceSelection, typer.Option("--source")],
+    limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 20,
+) -> None:
+    try:
+        configured = load_live_sources()
+        selected = SOURCE_NAMES if source is LiveSourceSelection.ALL else (source.value,)
+        failures = 0
+        for source_name in selected:
+            try:
+                data = fetch_feed(configured[source_name])
+                snapshots = parse_live_feed_bytes(data, _now(), source_name, limit)
+                created, unchanged = harvest_snapshots(ctx.obj["data_dir"], snapshots)
+                typer.echo(
+                    f"source={source_name} items={len(snapshots)} "
+                    f"created={created} unchanged={unchanged}"
+                )
+            except F0Error as error:
+                failures += 1
+                typer.echo(f"source={source_name} error={error.code}", err=True)
+        if failures:
+            raise F0Error(
+                "E_LIVE_HARVEST", f"{failures} selected live source request(s) failed"
+            )
+    except F0Error as error:
+        _fail(error)
+    except Exception:
+        _fail(F0Error("E_UNEXPECTED", "unexpected failure; preserve data and inspect diagnostics"))
+
+
 @stories_app.command("list")
 def stories_list(
     ctx: typer.Context,
@@ -85,10 +127,30 @@ def stories_list(
 
 
 @package_app.command("build")
-def package_build(ctx: typer.Context, story_id: str) -> None:
+def package_build(
+    ctx: typer.Context,
+    story_id: str,
+    generator: Annotated[BuildGenerator, typer.Option("--generator")] = BuildGenerator.MOCK,
+) -> None:
     try:
-        package_id, created = build_package(ctx.obj["data_dir"], story_id, _now())
-        typer.echo(f"package_id={package_id} {'created' if created else 'unchanged'}")
+        api_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            if generator is BuildGenerator.DEEPSEEK
+            else None
+        )
+        package_id, created = build_package(
+            ctx.obj["data_dir"], story_id, _now(), generator, api_key=api_key
+        )
+        suffix = ""
+        if generator is BuildGenerator.DEEPSEEK:
+            _snapshot, payload = load_validated_package(
+                ctx.obj["data_dir"], story_id, package_id=package_id
+            )
+            if isinstance(payload, RealStoryPackagePayload):
+                suffix = f" repair_used={str(payload.usage_metadata.repair_used).lower()}"
+        typer.echo(
+            f"package_id={package_id} {'created' if created else 'unchanged'}{suffix}"
+        )
     except F0Error as error:
         _fail(error)
     except Exception:
@@ -101,10 +163,15 @@ def package_export(
     story_id: str,
     export_format: Annotated[ExportFormat, typer.Option("--format")],
     force: Annotated[bool, typer.Option("--force")] = False,
+    package_id: Annotated[str | None, typer.Option("--package-id")] = None,
 ) -> None:
     try:
         replaced, unchanged, _paths = export_package(
-            ctx.obj["data_dir"], story_id, export_format, force=force
+            ctx.obj["data_dir"],
+            story_id,
+            export_format,
+            force=force,
+            package_id=package_id,
         )
         typer.echo(f"exported={replaced} unchanged={unchanged}")
     except F0Error as error:
