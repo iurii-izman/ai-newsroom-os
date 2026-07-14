@@ -1,7 +1,7 @@
 # F3 Script and Vertical Video MVP Specification
 
 Version: `1.0`
-Status: `IMPLEMENTATION_AUTHORITY`
+Status: `COMPLETED_MAINTENANCE_AUTHORITY`
 Scope: first production script and first local vertical MP4 only.
 
 ## 1. Goal and authority

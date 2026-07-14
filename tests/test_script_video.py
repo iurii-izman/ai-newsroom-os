@@ -154,7 +154,6 @@ def test_script_rejects_mock_package(tmp_path: Path) -> None:
             tmp_path,
             selected_story,
             package_id,
-            client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_PACKAGE"
 
@@ -167,22 +166,18 @@ def test_script_rejects_blocked_verdicts(tmp_path: Path, verdict: str) -> None:
             tmp_path,
             selected_story,
             package_id,
-            client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_VERDICT"
 
 
 def test_valid_script_filters_unverified_and_reuses_stable_pair(tmp_path: Path) -> None:
     selected_story, package_id, package = prepare_real_package(tmp_path)
-    client = FakeClient([])
-    script, created, json_path, markdown_path, provider_called = build_script(
+    script, created, json_path, markdown_path = build_script(
         tmp_path,
         selected_story,
         package_id,
-        client=client,
     )
     assert created is True
-    assert provider_called is False
     assert isinstance(script, ProductionScript)
     assert 90 <= script.word_count <= 170
     assert script.spoken_text == " ".join(scene.narration for scene in script.scenes)
@@ -202,20 +197,50 @@ def test_valid_script_filters_unverified_and_reuses_stable_pair(tmp_path: Path) 
     assert package.claims[2].qualification in script.spoken_text
     assert package.limitations[0] in script.spoken_text
     assert script.hook == f"Главный факт: {package.claims[2].text}"
-    assert client.completions.calls == []
     original = (json_path.read_bytes(), markdown_path.read_bytes())
 
-    unused = FakeClient([])
     repeated = build_script(
         tmp_path,
         selected_story,
         package_id,
-        api_key=None,
-        client=unused,
     )
     assert repeated[1] is False
-    assert repeated[4] is False
-    assert unused.completions.calls == []
+    assert (json_path.read_bytes(), markdown_path.read_bytes()) == original
+
+
+def test_script_build_cli_composes_real_package_offline_and_reuses_pair(tmp_path: Path) -> None:
+    selected_story, package_id, package = prepare_real_package(tmp_path)
+    expected_fingerprint, expected_script_id = expected_script_identity(package)
+    command = [
+        "--data-dir",
+        str(tmp_path),
+        "script",
+        "build",
+        selected_story,
+        "--package-id",
+        package_id,
+    ]
+
+    built = runner.invoke(app, command)
+    assert built.exit_code == 0
+    assert f"script_id={expected_script_id} created" in built.stdout
+    assert "provider_called" not in built.stdout
+
+    script_dir = tmp_path / "scripts" / selected_story
+    (json_path,) = script_dir.glob("script_*.json")
+    (markdown_path,) = script_dir.glob("script_*.md")
+    script = ProductionScript.model_validate_json(json_path.read_bytes())
+    assert script.script_id == expected_script_id
+    assert script.input_fingerprint == expected_fingerprint
+    assert script.story_id == selected_story
+    assert script.package_id == package_id
+    assert script.source_references == package.source_references
+    assert script.limitations == package.limitations
+    original = (json_path.read_bytes(), markdown_path.read_bytes())
+
+    repeated = runner.invoke(app, command)
+    assert repeated.exit_code == 0
+    assert f"script_id={script.script_id} unchanged" in repeated.stdout
     assert (json_path.read_bytes(), markdown_path.read_bytes()) == original
 
 
@@ -226,7 +251,6 @@ def test_script_rejects_package_without_allowed_claims(tmp_path: Path) -> None:
             tmp_path,
             selected_story,
             package_id,
-            client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_PACKAGE"
     assert not (tmp_path / "scripts").exists()
@@ -243,11 +267,10 @@ def test_script_identity_is_deterministic_and_package_bound(tmp_path: Path) -> N
 
 def test_partial_script_pair_is_a_conflict(tmp_path: Path) -> None:
     selected_story, package_id, _package = prepare_real_package(tmp_path)
-    script, _created, json_path, markdown_path, _provider_called = build_script(
+    script, _created, json_path, markdown_path = build_script(
         tmp_path,
         selected_story,
         package_id,
-        client=FakeClient([]),
     )
     assert script.script_id in json_path.name
     markdown_path.unlink()
@@ -256,7 +279,6 @@ def test_partial_script_pair_is_a_conflict(tmp_path: Path) -> None:
             tmp_path,
             selected_story,
             package_id,
-            client=FakeClient([]),
         )
     assert error.value.code == "E_SCRIPT_PARTIAL"
 

@@ -31,35 +31,6 @@ class ScriptScene(BaseModel):
         return self
 
 
-class ProviderSceneDraft(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    narration: str = Field(min_length=1, max_length=1_500)
-    on_screen_text: str = Field(min_length=1, max_length=120)
-    claim_ids: list[str] = Field(min_length=1, max_length=20)
-
-    @model_validator(mode="after")
-    def validate_claim_ids(self) -> ProviderSceneDraft:
-        if len(set(self.claim_ids)) != len(self.claim_ids):
-            raise ValueError("scene claim IDs must be unique")
-        return self
-
-
-class ProviderScriptDraft(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    working_title: str = Field(min_length=1, max_length=300)
-    hook: str = Field(min_length=1, max_length=300)
-    scenes: list[ProviderSceneDraft] = Field(min_length=5, max_length=8)
-    caption: str = Field(min_length=1, max_length=2_000)
-
-    @model_validator(mode="after")
-    def validate_hook(self) -> ProviderScriptDraft:
-        if self.scenes[0].narration != self.hook:
-            raise ValueError("first scene narration must equal the hook")
-        return self
-
-
 class ProductionScript(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 

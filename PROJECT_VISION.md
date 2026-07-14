@@ -1,7 +1,9 @@
 # AI Newsroom — Product Vision
 
 Status: active, non-normative product context.  
-Technical implementation requirements live only in `F0_TECHNICAL_SPEC.md`.
+Technical implementation authority is split by completed phase: `F0_TECHNICAL_SPEC.md` governs F0,
+`F1_F2_VERTICAL_MVP_SPEC.md` governs the F1/F2 slice, and `F3_SCRIPT_VIDEO_MVP_SPEC.md` governs the
+F3 script/video slice. `AGENTS.md` defines repository working rules.
 
 ## Mission
 
@@ -21,6 +23,14 @@ Technical implementation requirements live only in `F0_TECHNICAL_SPEC.md`.
 - видеть ограничения, источники и практические последствия.
 
 Исходное преимущество автора — CRM, интеграции, автоматизация, бизнес- и системный анализ и бизнес-процессы. Этот опыт задаёт более защищённую стартовую нишу, чем общий новостной канал «обо всём в AI».
+
+## Pilot Focus
+
+Для контентного pilot выбран стартовый сегмент CRM/integration/automation practitioners. До pilot
+нужно выбрать одну primary short-video platform и одну primary intent metric — qualified
+saves/shares или owned-channel conversion. Такой узкий wedge опирается на доказуемую экспертизу
+автора, уменьшает confounding и оставляет multi-platform distribution на этап после первого
+устойчивого сигнала.
 
 ## Jobs To Be Done
 
@@ -62,4 +72,3 @@ F0 → F1 → F2 → F3
 ## Governing Principle
 
 > Автоматизировать только доказанный процесс.
-

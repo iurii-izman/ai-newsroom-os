@@ -194,7 +194,7 @@ def script_build(
     output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
 ) -> None:
     try:
-        script, created, json_path, markdown_path, provider_called = build_script(
+        script, created, json_path, markdown_path = build_script(
             ctx.obj["data_dir"],
             story_id,
             package_id,
@@ -202,7 +202,6 @@ def script_build(
         )
         typer.echo(
             f"script_id={script.script_id} {'created' if created else 'unchanged'} "
-            f"provider_called={str(provider_called).lower()} "
             f"json={json_path} markdown={markdown_path}"
         )
     except F0Error as error:

@@ -1,7 +1,7 @@
 # F0 Technical Specification
 
 Version: `0.6-owner-reviewed`  
-Status: `READY_FOR_F0`  
+Status: `COMPLETED_MAINTENANCE_AUTHORITY`
 Target: Foundation Sprint F0 only.
 
 This file is the only normative source for F0 implementation.
@@ -11,11 +11,13 @@ This file is the only normative source for F0 implementation.
 Authority order:
 
 1. `F0_TECHNICAL_SPEC.md` — sole normative source for F0;
-2. `docs/f0-minimal-scope.md` — derived non-normative checklist;
+2. `docs/history/f0/f0-minimal-scope.md` — archived derived non-normative checklist;
 3. `PROJECT_VISION.md` — non-normative product context;
-4. `docs/open-decisions.md` — future owner decisions;
-5. `docs/f0-risk-register.md` — operational risks;
-6. `PROJECT_FOUNDATION.md`, `PROJECT_FOUNDATION.vNext.md` and the Ultra-audit documents — historical context.
+4. `docs/history/f0/open-decisions.md` — archived owner decision register;
+5. `docs/history/f0/f0-risk-register.md` — archived operational risks;
+6. `docs/history/foundation/PROJECT_FOUNDATION.md`,
+   `docs/history/foundation/PROJECT_FOUNDATION.vNext.md` and the Ultra-audit documents — historical
+   context.
 
 If any documents conflict, this specification wins for F0. Normative terms `MUST`, `MUST NOT`, `SHOULD`, `SHOULD NOT` and `MAY` use their ordinary requirements meaning.
 
@@ -581,4 +583,5 @@ Every required behavior above has passing evidence. Test count alone is irreleva
 - **F2:** owner chooses one real LLM provider/data boundary after evaluation; no provider seam exists in F0.
 - **F3:** validated editorial/production artifacts are designed from the proven manual process.
 
-The manual content pilot proceeds independently in Track A. Open owner choices are listed in `docs/open-decisions.md`; no unresolved choice there blocks F0.
+The manual content pilot proceeds independently in Track A. Historical owner choices are retained in
+`docs/history/f0/open-decisions.md`; no unresolved choice there blocks F0.
