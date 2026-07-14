@@ -4,14 +4,17 @@ AI Newsroom OS is a proof-first automation system for a Russian-speaking AI news
 traceable relationships between sources, claims, editorial conclusions, and practical applications
 without treating vendor feed content as independently verified truth.
 
-**Status:** F1/F2 DeepSeek vertical MVP implemented. Foundation F0 behavior remains supported.
+**Status:** F3 first-script and vertical-video pilot. Foundation F0 and F1/F2 behavior remains
+supported.
 
 ## Document authority
 
 1. [`F0_TECHNICAL_SPEC.md`](F0_TECHNICAL_SPEC.md) remains the sole normative specification for F0.
 2. [`F1_F2_VERTICAL_MVP_SPEC.md`](F1_F2_VERTICAL_MVP_SPEC.md) governs only the live-ingestion and
    DeepSeek vertical slice.
-3. [`PROJECT_VISION.md`](PROJECT_VISION.md) is non-normative product context.
+3. [`F3_SCRIPT_VIDEO_MVP_SPEC.md`](F3_SCRIPT_VIDEO_MVP_SPEC.md) governs only the script and video
+   pilot slice.
+4. [`PROJECT_VISION.md`](PROJECT_VISION.md) is non-normative product context.
 
 ## Local setup
 
@@ -34,6 +37,8 @@ uv run --env-file .env -- ai-newsroom --data-dir data harvest live --source open
 uv run --env-file .env -- ai-newsroom --data-dir data harvest live --source all --limit 5
 uv run --env-file .env -- ai-newsroom --data-dir data package build STORY_ID --generator deepseek
 uv run --env-file .env -- ai-newsroom --data-dir data package export STORY_ID --format all --package-id PACKAGE_ID
+uv run --env-file .env -- ai-newsroom --data-dir data script build STORY_ID --package-id PACKAGE_ID
+uv run -- ai-newsroom video render SCRIPT_JSON
 ```
 
 `harvest live` accepts only the three tracked first-party sources. The default package generator is
@@ -50,6 +55,11 @@ Only public, bounded, feed-derived content for the selected Story may be sent: t
 canonical URL, dates, vendor name, source ID, and Story ID. Do not use this slice for private or
 licensed internal content. Provider-side context caching may occur; the system does not claim zero
 retention. Automated tests remain entirely network-free.
+
+`script build` accepts only a validated stored DeepSeek package and exports an editable canonical
+JSON/Markdown pair. `video render` validates that JSON, queries the current Edge Russian voice list,
+sends only `spoken_text` to Edge TTS, and creates local ignored MP3, SRT, text-card PNG, MP4, and
+manifest artifacts. Every script and video remains subject to manual approval before publication.
 
 ## Target environment
 
