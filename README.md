@@ -13,15 +13,27 @@ without treating vendor feed content as independently verified truth.
    DeepSeek vertical slice.
 3. [`PROJECT_VISION.md`](PROJECT_VISION.md) is non-normative product context.
 
+## Local setup
+
+```powershell
+uv sync --frozen
+Copy-Item .env.example .env
+```
+
+Put the local `DEEPSEEK_API_KEY` in `.env` when using the real generator. Never commit `.env` or
+another file containing the key. The application reads the process environment directly; `uv`
+loads the local file for an explicitly opted-in command, while an existing environment value takes
+precedence.
+
 ## Commands
 
 Existing F0 commands remain valid. The vertical slice adds:
 
 ```powershell
-uv run ai-newsroom --data-dir data harvest live --source openai-news --limit 20
-uv run ai-newsroom --data-dir data harvest live --source all --limit 5
-uv run ai-newsroom --data-dir data package build STORY_ID --generator deepseek
-uv run ai-newsroom --data-dir data package export STORY_ID --format all --package-id PACKAGE_ID
+uv run --env-file .env -- ai-newsroom --data-dir data harvest live --source openai-news --limit 20
+uv run --env-file .env -- ai-newsroom --data-dir data harvest live --source all --limit 5
+uv run --env-file .env -- ai-newsroom --data-dir data package build STORY_ID --generator deepseek
+uv run --env-file .env -- ai-newsroom --data-dir data package export STORY_ID --format all --package-id PACKAGE_ID
 ```
 
 `harvest live` accepts only the three tracked first-party sources. The default package generator is
@@ -31,7 +43,8 @@ still `mock`, so the old F0 invocation remains unchanged.
 
 The concrete provider is DeepSeek at `https://api.deepseek.com/chat/completions`, using
 `deepseek-v4-flash`, JSON Output, temperature `0.2`, disabled thinking, no tools, no streaming, and
-at most one schema-repair request. Set only `DEEPSEEK_API_KEY` in the current process environment.
+at most one schema-repair request. Set only `DEEPSEEK_API_KEY` in the current process environment or
+load the ignored local `.env` with `uv run --env-file .env -- ...`.
 
 Only public, bounded, feed-derived content for the selected Story may be sent: title, excerpt,
 canonical URL, dates, vendor name, source ID, and Story ID. Do not use this slice for private or
