@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from ai_newsroom.database import database_path, harvest_snapshots, init_database
-from ai_newsroom.models import F0Error
+from ai_newsroom.models import F0Error, StoryPackagePayload
 from ai_newsroom.package_builder import build_package, load_validated_package
 from ai_newsroom.rss import parse_rss_bytes, read_rss_fixture
 
@@ -28,6 +28,7 @@ def test_build_exact_package_and_repeat(tmp_path: Path) -> None:
     assert (package_id, created) == ("pkg_17e9b7502f7bc00db437b993", True)
     assert build_package(tmp_path, STORY_ID, "2026-07-14T13:00:00Z") == (package_id, False)
     snapshot, payload = load_validated_package(tmp_path, STORY_ID)
+    assert isinstance(payload, StoryPackagePayload)
     assert snapshot.package_id == package_id
     assert "built_at" not in snapshot.payload_json
     assert payload.publishable is False
