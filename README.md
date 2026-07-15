@@ -75,3 +75,10 @@ to manual approval before publication.
 - no Docker or GPU requirement
 
 The manual content-validation track continues independently of this technical slice.
+
+## Track A controlled evaluation
+
+`experiments/gpt56_terra_sol/` contains a separate, reproducible harness for a six-run controlled
+GPT-5.6 Terra/Sol comparison on synthetic CRM incident data. It requires blind human review and
+manual correction timing; local evidence remains ignored. The experiment is not a general
+benchmark, does not approve a result for publication, and does not change the production CLI.

@@ -26,6 +26,8 @@ htmlcov/
 .demo-f0/
 .demo-f1-f2/
 .demo-video/
+.track-a/
+.demo-track-a/
 data/
 exports/
 tmp/
