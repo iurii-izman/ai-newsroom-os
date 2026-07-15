@@ -1,0 +1,7 @@
+output_id,factual_accuracy,root_cause_reasoning,idempotency,timeout_retry,assignment,remediation,uat,risks_assumptions,practical_usability,critical_error_count,critical_error_notes,review_complete
+A,,,,,,,,,,,,false
+B,,,,,,,,,,,,false
+C,,,,,,,,,,,,false
+D,,,,,,,,,,,,false
+E,,,,,,,,,,,,false
+F,,,,,,,,,,,,false
